@@ -36,6 +36,7 @@ import androidx.compose.ui.node.TraversableNode
 import androidx.compose.ui.platform.PlatformInsets
 import androidx.compose.ui.platform.PlatformWindowInsets
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.util.fastForEachIndexed
 
 internal actual fun findDisplayCutouts(placementScope: Placeable.PlacementScope): List<RectRulers> {
     var node = placementScope.coordinates?.findRootCoordinates() as? NodeCoordinator
@@ -57,17 +58,10 @@ internal actual fun findInsetsAnimationProperties(
     return NoWindowInsetsAnimation
 }
 
-internal class RulerProviderModifierElement(
+internal data class RulerProviderModifierElement(
     val windowInsets: PlatformWindowInsets
 ): ModifierNodeElement<RulerProviderModifierNode>() {
     override fun create(): RulerProviderModifierNode = RulerProviderModifierNode(windowInsets)
-    override fun hashCode(): Int = windowInsets.hashCode()
-    override fun equals(other: Any?): Boolean {
-        if (other === this) {
-            return true
-        }
-        return (other as? RulerProviderModifierElement)?.windowInsets === windowInsets
-    }
     override fun update(node: RulerProviderModifierNode) {
         node.windowInsets = windowInsets
     }
@@ -89,9 +83,7 @@ internal class RulerProviderModifierNode(
             }
         }
 
-    val rulerLambda: RulerScope.() -> Unit = {
-        val (width, height) = coordinates.size
-
+    fun rulerLambda(width: Int, height: Int): RulerScope.() -> Unit = {
         provideInsetsValues(CaptionBar, windowInsets.captionBar, width, height)
         provideInsetsValues(DisplayCutout, windowInsets.displayCutout, width, height)
         provideInsetsValues(Ime, windowInsets.ime, width, height)
@@ -114,7 +106,7 @@ internal class RulerProviderModifierNode(
             }
         }
 
-        displayCutouts.forEachIndexed { index, rect ->
+        displayCutouts.fastForEachIndexed { index, rect ->
             val rulers = displayCutoutRulers[index]
             rulers.left provides rect.left
             rulers.top provides rect.top
@@ -157,7 +149,7 @@ internal class RulerProviderModifierNode(
         val placeable = measurable.measure(constraints)
         val width = placeable.width
         val height = placeable.height
-        return layout(width, height, rulers = rulerLambda) { placeable.place(0, 0) }
+        return layout(width, height, rulers = rulerLambda(width, height)) { placeable.place(0, 0) }
     }
 
     override val traverseKey: Any

@@ -17,6 +17,7 @@ package androidx.compose.remote.core.operations;
 
 import static androidx.compose.remote.core.documentation.DocumentedOperation.UTF8;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteContext;
@@ -33,6 +34,7 @@ import org.jspecify.annotations.NonNull;
 import java.util.List;
 
 /** Operation to deal with Text data */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class TextData extends Operation implements SerializableToString, Serializable {
     private static final int OP_CODE = Operations.DATA_TEXT;
     private static final String CLASS_NAME = "TextData";
@@ -116,10 +118,10 @@ public class TextData extends Operation implements SerializableToString, Seriali
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Data Operations", OP_CODE, CLASS_NAME)
-                .description("Encode a string ")
-                .field(DocumentedOperation.INT, "id", "id string")
-                .field(UTF8, "text", "encode text as a string");
+        doc.operation("Text Operations", OP_CODE, CLASS_NAME)
+                .description("Define a static string and associate it with an ID")
+                .field(DocumentedOperation.INT, "textId", "The ID of the text")
+                .field(UTF8, "text", "The string value");
     }
 
     @Override

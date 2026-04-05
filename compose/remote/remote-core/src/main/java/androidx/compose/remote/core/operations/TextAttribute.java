@@ -18,7 +18,9 @@ package androidx.compose.remote.core.operations;
 import static androidx.compose.remote.core.PaintContext.TEXT_MEASURE_FONT_HEIGHT;
 import static androidx.compose.remote.core.PaintContext.TEXT_MEASURE_MONOSPACE_WIDTH;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.INT;
+import static androidx.compose.remote.core.documentation.DocumentedOperation.SHORT;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.PaintContext;
@@ -33,6 +35,7 @@ import org.jspecify.annotations.NonNull;
 import java.util.List;
 
 /** Operation to Measure Text data */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class TextAttribute extends PaintOperation implements Serializable {
     private static final int OP_CODE = Operations.ATTRIBUTE_TEXT;
     private static final String CLASS_NAME = "TextMeasure";
@@ -123,11 +126,12 @@ public class TextAttribute extends PaintOperation implements Serializable {
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Expressions Operations", OP_CODE, CLASS_NAME)
-                .description("Measure text")
-                .field(INT, "id", "id of float result of the measure")
-                .field(INT, "textId", "id of text")
-                .field(INT, "type", "type: measure 0=width,1=height");
+        doc.operation("Text Operations", OP_CODE, CLASS_NAME)
+                .description("Extract text-related properties (width, length, etc.)")
+                .field(INT, "id", "The ID of the float variable to store the result")
+                .field(INT, "textId", "The ID of the text variable to measure")
+                .field(SHORT, "type", "The type of property to extract")
+                .field(SHORT, "unused", "unused field");
     }
 
     @NonNull

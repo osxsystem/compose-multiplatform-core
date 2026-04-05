@@ -17,6 +17,7 @@ package androidx.compose.remote.core.operations.layout.modifiers;
 
 import static androidx.compose.remote.core.documentation.DocumentedOperation.FLOAT;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.PaintContext;
@@ -35,6 +36,7 @@ import org.jspecify.annotations.NonNull;
 import java.util.List;
 
 /** Support clip with a rounded rectangle */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class RoundedClipRectModifierOperation extends DrawBase4
         implements ModifierOperation, DecoratorComponent {
     public static final int OP_CODE = Operations.MODIFIER_ROUNDED_CLIP_RECT;
@@ -81,28 +83,25 @@ public class RoundedClipRectModifierOperation extends DrawBase4
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Modifier Operations", id(), "RoundedClipRectModifierOperation")
-                .description("clip with rectangle")
+        doc.operation("Modifier Operations", id(), CLASS_NAME)
+                .additionalDocumentation("modifier_rounded_clip_rect")
+                .description("Clip the component's content to its rounded rectangular bounds")
                 .field(
                         FLOAT,
                         "topStart",
-                        "The topStart radius of the rectangle to "
-                                + "intersect with the current clip")
+                        "The topStart radius of the rectangle")
                 .field(
                         FLOAT,
                         "topEnd",
-                        "The topEnd radius of the rectangle to "
-                                + "intersect with the current clip")
+                        "The topEnd radius of the rectangle")
                 .field(
                         FLOAT,
                         "bottomStart",
-                        "The bottomStart radius of the rectangle to "
-                                + "intersect with the current clip")
+                        "The bottomStart radius of the rectangle")
                 .field(
                         FLOAT,
                         "bottomEnd",
-                        "The bottomEnd radius of the rectangle to "
-                                + "intersect with the current clip");
+                        "The bottomEnd radius of the rectangle");
     }
 
     float mWidth;

@@ -32,12 +32,6 @@ actual constructor(
     actual val shouldDismissOnBackPress: Boolean,
     actual val shouldDismissOnClickOutside: Boolean,
 ) {
-    @Deprecated(
-        level = DeprecationLevel.HIDDEN,
-        message = "Replaced with additional shouldDismissOnScrimClick param constructor.",
-    )
-    actual constructor(shouldDismissOnBackPress: Boolean) : this(shouldDismissOnBackPress, true)
-
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is ModalBottomSheetProperties) return false
@@ -66,7 +60,6 @@ internal actual fun ModalBottomSheetDialog(
     onDismissRequest: () -> Unit,
     contentColor: Color, // TODO: https://youtrack.jetbrains.com/issue/CMP-7147
     properties: ModalBottomSheetProperties,
-    predictiveBackProgress: Animatable<Float, AnimationVector1D>,
     content: @Composable () -> Unit
 ) {
     Dialog(
@@ -76,7 +69,9 @@ internal actual fun ModalBottomSheetDialog(
             dismissOnClickOutside = properties.shouldDismissOnClickOutside,
             usePlatformDefaultWidth = false,
             usePlatformInsets = false,
+            useSoftwareKeyboardInset = false,
             scrimColor = Color.Transparent,
+            animateTransition = false,
         ),
         content = content
     )

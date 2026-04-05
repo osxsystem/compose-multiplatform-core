@@ -17,25 +17,64 @@
 package androidx.compose.ui.platform
 
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.text.AnnotatedString
 import java.awt.HeadlessException
 import java.awt.Toolkit
 import java.awt.datatransfer.ClipboardOwner
 import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.StringSelection
 import java.awt.datatransfer.Transferable
 import java.awt.datatransfer.UnsupportedFlavorException
+import java.io.IOException
 
 actual typealias NativeClipboard = Any
 
-internal class AwtPlatformClipboard internal constructor() : Clipboard {
+private val systemClipboard by lazy {
+    try {
+        Toolkit.getDefaultToolkit().systemClipboard
+    } catch (_: HeadlessException) {
+        null
+    }
+}
 
-    private val systemClipboard by lazy {
-        try {
-            Toolkit.getDefaultToolkit().systemClipboard
-        } catch (_: HeadlessException) {
+@Deprecated(
+    "Use AwtPlatformClipboard instead, which supports suspend functions.",
+    ReplaceWith("AwtPlatformClipboard", "androidx.compose.ui.platform.AwtPlatformClipboard"),
+)
+@Suppress("DEPRECATION")
+internal class AwtClipboardManager : ClipboardManager {
+    override fun getText(): AnnotatedString? =
+        getClipboardText()?.let { AnnotatedString(it) }
+
+    override fun setText(annotatedString: AnnotatedString) {
+        setClipboardText(annotatedString.text)
+    }
+
+    override fun hasText(): Boolean = !getClipboardText().isNullOrEmpty()
+
+    override fun getClip(): ClipEntry? = null
+
+    @Suppress("GetterSetterNames")
+    override fun setClip(clipEntry: ClipEntry?) = Unit
+
+    private fun setClipboardText(text: String) {
+        systemClipboard?.setContents(StringSelection(text), null)
+    }
+
+    private fun getClipboardText(): String? {
+        return try {
+            systemClipboard?.getData(DataFlavor.stringFlavor) as String?
+        } catch (_: UnsupportedFlavorException) {
+            null
+        } catch (_: IllegalStateException) {
+            null
+        } catch (_: IOException) {
             null
         }
     }
+}
 
+internal class AwtPlatformClipboard internal constructor() : Clipboard {
     override suspend fun getClipEntry(): ClipEntry? {
         val transferable = systemClipboard?.getContents(null) ?: return null
         val flavors = transferable.transferDataFlavors
@@ -44,7 +83,7 @@ internal class AwtPlatformClipboard internal constructor() : Clipboard {
     }
 
     override suspend fun setClipEntry(clipEntry: ClipEntry?) {
-        val transferable = clipEntry?.nativeClipEntry as? Transferable
+        val transferable = clipEntry?.asAwtTransferable
         systemClipboard?.setContents(
             /* contents = */ transferable ?: EmptyTransferable,
             /* owner = */ transferable as? ClipboardOwner,
@@ -57,12 +96,16 @@ internal class AwtPlatformClipboard internal constructor() : Clipboard {
      * See [awtClipboard] to access [java.awt.datatransfer.Clipboard].
      */
     override val nativeClipboard: NativeClipboard
-        get() = systemClipboard ?: error("systemClipboard is not available in headless mode")
+        get() = systemClipboard ?: NoClipboard
 }
 
 /**
+ * The object returned as the [NativeClipboard] when [AwtPlatformClipboard.systemClipboard] is null.
+ */
+private data object NoClipboard
+
+/**
  * Returns [java.awt.datatransfer.Clipboard] instance if it's available, or null otherwise.
- * It might throw an exception when accessed in a headless mode.
  */
 @ExperimentalComposeUiApi
 val Clipboard.awtClipboard: java.awt.datatransfer.Clipboard?
@@ -76,8 +119,13 @@ val Clipboard.awtClipboard: java.awt.datatransfer.Clipboard?
  *
  * See [asAwtTransferable] to access [Transferable].
  */
-actual class ClipEntry(val nativeClipEntry: Any) {
-    // TODO https://youtrack.jetbrains.com/issue/CMP-1260/ClipboardManager.-Implement-getClip-getClipMetadata-setClip
+actual class ClipEntry
+@ExperimentalComposeUiApi
+constructor(
+    @property:ExperimentalComposeUiApi
+    val nativeClipEntry: Any
+) {
+    // TODO: https://youtrack.jetbrains.com/issue/CMP-1260
     actual val clipMetadata: ClipMetadata
         get() = TODO("ClipMetadata is not implemented. Consider using nativeClipboard")
 }
@@ -90,10 +138,6 @@ actual class ClipEntry(val nativeClipEntry: Any) {
 val ClipEntry.asAwtTransferable: Transferable?
     get() = nativeClipEntry as? Transferable
 
-internal actual fun createPlatformClipboard(): Clipboard {
-    return AwtPlatformClipboard()
-}
-
 private object EmptyTransferable : Transferable {
     override fun getTransferDataFlavors(): Array<DataFlavor> {
         return emptyArray()
@@ -105,3 +149,9 @@ private object EmptyTransferable : Transferable {
         throw UnsupportedFlavorException(flavor)
     }
 }
+
+@Suppress("DEPRECATION")
+internal actual fun createPlatformClipboardManager(): ClipboardManager = AwtClipboardManager()
+
+internal actual fun createPlatformClipboard(): Clipboard = AwtPlatformClipboard()
+

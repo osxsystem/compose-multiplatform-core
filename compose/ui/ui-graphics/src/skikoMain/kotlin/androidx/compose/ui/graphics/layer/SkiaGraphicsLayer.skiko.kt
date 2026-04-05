@@ -37,11 +37,10 @@ import androidx.compose.ui.graphics.asSkiaPath
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.draw
-import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.skiaCanvas
+import androidx.compose.ui.graphics.skiaImageFilter
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toSkia
-import androidx.compose.ui.graphics.toSkiaRRect
-import androidx.compose.ui.graphics.toSkiaRect
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -355,7 +354,7 @@ actual class GraphicsLayer internal constructor(
         if (isReleased) return
         configureOutlineAndClip()
         parentLayer?.addSubLayer(this)
-        renderNode?.drawInto(canvas.nativeCanvas)
+        renderNode?.drawInto(canvas.skiaCanvas)
     }
 
     private fun onAddedToParentLayer() {
@@ -376,10 +375,31 @@ actual class GraphicsLayer internal constructor(
             renderNode.setClipPath(null)
         } else {
             renderNode.clip = clip
-            val tmpOutline = outline
-            when (tmpOutline) {
-                is Outline.Rectangle -> renderNode.setClipRect(tmpOutline.rect.toSkiaRect(), antiAlias = true)
-                is Outline.Rounded -> renderNode.setClipRRect(tmpOutline.roundRect.toSkiaRRect(), antiAlias = true)
+            when (val tmpOutline = outline) {
+                is Outline.Rectangle -> renderNode.setClipRect(
+                    tmpOutline.rect.left,
+                    tmpOutline.rect.top,
+                    tmpOutline.rect.right,
+                    tmpOutline.rect.bottom,
+                    antiAlias = true
+                )
+                is Outline.Rounded -> renderNode.setClipRRect(
+                    tmpOutline.roundRect.left,
+                    tmpOutline.roundRect.top,
+                    tmpOutline.roundRect.right,
+                    tmpOutline.roundRect.bottom,
+                    floatArrayOf(
+                        tmpOutline.roundRect.topLeftCornerRadius.x,
+                        tmpOutline.roundRect.topLeftCornerRadius.y,
+                        tmpOutline.roundRect.topRightCornerRadius.x,
+                        tmpOutline.roundRect.topRightCornerRadius.y,
+                        tmpOutline.roundRect.bottomRightCornerRadius.x,
+                        tmpOutline.roundRect.bottomRightCornerRadius.y,
+                        tmpOutline.roundRect.bottomLeftCornerRadius.x,
+                        tmpOutline.roundRect.bottomLeftCornerRadius.y
+                    ),
+                    antiAlias = true
+                )
                 is Outline.Generic -> renderNode.setClipPath(tmpOutline.path.asSkiaPath(), antiAlias = true)
             }
         }
@@ -424,7 +444,7 @@ actual class GraphicsLayer internal constructor(
         renderNode?.layerPaint = if (requiresLayer()) {
             SkPaint().also {
                 it.setAlphaf(alpha)
-                it.imageFilter = renderEffect?.asSkiaImageFilter()
+                it.imageFilter = renderEffect?.skiaImageFilter
                 it.colorFilter = colorFilter?.asSkiaColorFilter()
                 it.blendMode = blendMode.toSkia()
             }

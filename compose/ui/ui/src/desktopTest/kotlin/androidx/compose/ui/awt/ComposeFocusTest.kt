@@ -35,11 +35,13 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.performClick
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import com.google.common.truth.Truth.assertThat
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.GraphicsEnvironment
 import java.awt.KeyboardFocusManager
+import java.awt.Robot
 import java.awt.Window
 import java.awt.event.FocusEvent.Cause
 import java.awt.event.KeyEvent
@@ -47,10 +49,8 @@ import javax.swing.JButton
 import javax.swing.JFrame
 import javax.swing.JPanel
 import kotlin.random.Random
-import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.jetbrains.skiko.MainUIDispatcher
 import org.junit.Assume.assumeFalse
@@ -434,7 +434,9 @@ class ComposeFocusTest {
                 Column(Modifier.fillMaxSize()) {
                     composeButton1.Button()
                     composeButton2.Button()
-                    Popup(focusable = true) {
+                    Popup(
+                        properties = PopupProperties(focusable = true),
+                    ) {
                         composeButton3.Button()
                         composeButton4.Button()
                     }
@@ -466,7 +468,9 @@ class ComposeFocusTest {
                         Column(Modifier.fillMaxSize()) {
                             composeButton1.Button()
                             composeButton2.Button()
-                            Popup(focusable = true) {
+                            Popup(
+                                properties = PopupProperties(focusable = true),
+                            ) {
                                 composeButton3.Button()
                                 composeButton4.Button()
                             }
@@ -498,7 +502,9 @@ class ComposeFocusTest {
                 Column(Modifier.fillMaxSize()) {
                     composeButton1.Button()
                     composeButton2.Button()
-                    Popup(focusable = true) {
+                    Popup(
+                        properties = PopupProperties(focusable = true),
+                    ) {
                         Column(Modifier.fillMaxSize()) {
                             composeButton3.Button()
                             SwingPanel(
@@ -543,7 +549,9 @@ class ComposeFocusTest {
                             }
                         }
                     )
-                    Popup(focusable = true) {
+                    Popup(
+                        properties = PopupProperties(focusable = true),
+                    ) {
                         Column(Modifier.fillMaxSize()) {
                             composeButton3.Button()
                             composeButton4.Button()
@@ -572,7 +580,9 @@ class ComposeFocusTest {
                 Column(Modifier.fillMaxSize()) {
                     composeButton1.Button()
                     composeButton2.Button()
-                    Popup(focusable = true) {
+                    Popup(
+                        properties = PopupProperties(focusable = true),
+                    ) {
                         Column(Modifier.fillMaxSize()) {
                             composeButton3.Button()
                             composeButton4.Button()
@@ -612,9 +622,9 @@ class ComposeFocusTest {
 
         assertThat(composeButton1.isFocused).isFalse()
 
-        awaitEdtAfterDelay()
+        awaitEDT()
         pressNextFocusKey()
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertThat(composeButton1.isFocused).isTrue()
     }
 
@@ -635,9 +645,9 @@ class ComposeFocusTest {
 
         assertThat(composeButton1.isFocused).isFalse()
 
-        awaitEdtAfterDelay()
+        awaitEDT()
         pressNextFocusKey()
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertThat(composeButton1.isFocused).isTrue()
     }
 
@@ -649,7 +659,7 @@ class ComposeFocusTest {
         window.pack()
         window.isVisible = true
 
-        awaitEdtAfterDelay()
+        awaitEDT()
         pressNextFocusKey()
     }
 
@@ -666,7 +676,7 @@ class ComposeFocusTest {
         window.pack()
         window.isVisible = true
 
-        awaitEdtAfterDelay()
+        awaitEDT()
         pressNextFocusKey()
     }
 
@@ -690,22 +700,22 @@ class ComposeFocusTest {
         frame.contentPane.add(composePanel, BorderLayout.CENTER)
         frame.isVisible = true
 
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(outerButton1, focusedComponent)
 
         // The first requestFocus sends a focusGained(Cause.ACTIVATION) event
         composePanel.requestFocus()
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(composeButton1, focusedComponent)
 
         // Switch focus back to Swing
         outerButton1.requestFocus()
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(outerButton1, focusedComponent)
 
         // The 2nd requestFocus sends a focusGained(Cause.UNKNOWN) event; we want to test both
         composePanel.requestFocus()
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(composeButton1, focusedComponent)
     }
 
@@ -724,7 +734,7 @@ class ComposeFocusTest {
         }
         frame.isVisible = true
 
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(null, focusedComponent)
     }
 
@@ -747,23 +757,23 @@ class ComposeFocusTest {
         frame.isVisible = true
 
         composeBox1.requestFocus()
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(composeBox1, focusedComponent)
 
         composePanel.requestFocus(Cause.UNKNOWN)
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(composeBox1, focusedComponent)
 
         composePanel.requestFocus(Cause.ACTIVATION)
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(composeBox1, focusedComponent)
 
         composePanel.requestFocus(Cause.TRAVERSAL_FORWARD)
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(composeBox1, focusedComponent)
 
         composePanel.requestFocus(Cause.TRAVERSAL_BACKWARD)
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(composeBox1, focusedComponent)
     }
 
@@ -787,18 +797,18 @@ class ComposeFocusTest {
         frame.isVisible = true
 
         composeBox1.requestFocus()
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(composeBox1, focusedComponent)
 
         // show a second window, so the first loses focus with "event.isTemporary = true"
         val temporaryFrame = JFrame().disposeOnEnd()
         temporaryFrame.size = Dimension(500, 500)
         temporaryFrame.isVisible = true
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(composeBox1, focusedComponent)
 
         temporaryFrame.dispose()
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(composeBox1, focusedComponent)
     }
 
@@ -819,7 +829,7 @@ class ComposeFocusTest {
         frame.size = Dimension(500, 500)
         frame.isVisible = true
 
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(composeButton2, focusedComponent)
     }
 
@@ -893,7 +903,7 @@ class ComposeFocusTest {
 
             val button = buttons.toList().random()
             button.requestFocus()
-            awaitEdtAfterDelay()
+            awaitEDT()
             assertEquals(button, focusedComponent)
         }
 
@@ -903,15 +913,15 @@ class ComposeFocusTest {
             val button = buttons.filterIsInstance<TestJButton>().randomOrNull()
             if (button != null) {
                 button.performClick()
-                awaitEdtAfterDelay()
+                awaitEDT()
                 assertEquals(button, focusedComponent)
             }
         }
 
-        awaitEdtAfterDelay()
+        awaitEDT()
         println("firstButton")
         buttons.first().requestFocus()
-        awaitEdtAfterDelay()
+        awaitEDT()
         assertEquals(buttons.first(), focusedComponent)
 
         repeat(10) {
@@ -940,6 +950,7 @@ fun runFocusTest(action: suspend FocusTestScope.() -> Unit) {
 
 class FocusTestScope {
     private val windows = mutableListOf<Window>()
+    private val robot = Robot()
 
     fun <T : Window> T.disposeOnEnd() : T {
         windows.add(this)
@@ -965,14 +976,18 @@ class FocusTestScope {
         val focusOwner = focusOwner()
         focusOwner.dispatchEvent(KeyEvent(focusOwner, KeyEvent.KEY_PRESSED, 0, 0, KeyEvent.VK_TAB, '\t'))
         focusOwner.dispatchEvent(KeyEvent(focusOwner, KeyEvent.KEY_RELEASED, 0, 0, KeyEvent.VK_TAB, '\t'))
-        awaitEdtAfterDelay()
+        awaitEDT()
     }
 
     suspend fun pressPreviousFocusKey() {
         val focusOwner = focusOwner()
         focusOwner.dispatchEvent(KeyEvent(focusOwner, KeyEvent.KEY_PRESSED, 0, KeyEvent.SHIFT_DOWN_MASK, KeyEvent.VK_TAB, '\t'))
         focusOwner.dispatchEvent(KeyEvent(focusOwner, KeyEvent.KEY_RELEASED, 0, KeyEvent.SHIFT_DOWN_MASK, KeyEvent.VK_TAB, '\t'))
-        awaitEdtAfterDelay()
+        awaitEDT()
+    }
+
+    suspend fun awaitEDT() {
+        robot.awaitEDT()
     }
 }
 
@@ -1005,9 +1020,4 @@ private fun ComposeComponent.Box(content: @Composable BoxScope.() -> Unit) {
 private class TestJButton(name: String) : JButton(name), TestComponent {
     override val isFocused: Boolean get() = hasFocus()
     override fun toString(): String = text
-}
-
-private suspend fun awaitEdtAfterDelay() {
-    delay(100)
-    awaitEDT()
 }

@@ -19,6 +19,7 @@ package androidx.compose.foundation.lazy
 import androidx.annotation.IntRange as AndroidXIntRange
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.MutatePriority
+import androidx.compose.foundation.ScrollIndicatorState
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.ScrollScope
 import androidx.compose.foundation.gestures.ScrollableState
@@ -272,6 +273,8 @@ constructor(
     internal val density: Density
         get() = layoutInfoState.value.density
 
+    internal var skipItemPlacementAnimation: Boolean = false
+
     /**
      * The ScrollableController instance. We keep it as we need to call stopAnimation on it once we
      * reached the end of the list.
@@ -353,6 +356,23 @@ constructor(
                 }
             }
         }
+
+    private val _scrollIndicatorState =
+        object : ScrollIndicatorState {
+            override val scrollOffset: Int
+                get() = calculateScrollOffset()
+
+            override val contentSize: Int
+                get() = layoutInfo.calculateContentSize()
+
+            override val viewportSize: Int
+                get() = layoutInfo.singleAxisViewportSize
+        }
+
+    private fun calculateScrollOffset(): Int {
+        return (layoutInfo.visibleItemsAverageSize() * firstVisibleItemIndex) +
+            firstVisibleItemScrollOffset
+    }
 
     /** Stores currently pinned items which are always composed. */
     internal val pinnedItems = LazyLayoutPinnedItemList()
@@ -440,7 +460,9 @@ constructor(
         scrollPriority: MutatePriority,
         block: suspend ScrollScope.() -> Unit,
     ) {
-        awaitLayoutModifier.waitForFirstLayout()
+        if (layoutInfoState.value === EmptyLazyListMeasureResult) {
+            awaitLayoutModifier.waitForFirstLayout()
+        }
         scrollableState.scroll(scrollPriority, block)
     }
 
@@ -462,6 +484,9 @@ constructor(
     @get:Suppress("GetterSetterNames")
     override val lastScrolledBackward: Boolean
         get() = scrollableState.lastScrolledBackward
+
+    override val scrollIndicatorState: ScrollIndicatorState?
+        get() = _scrollIndicatorState
 
     internal val placementScopeInvalidator = ObservableScopeInvalidator()
 
@@ -555,9 +580,14 @@ constructor(
      *   scroll the item further upward (taking it partly offscreen).
      */
     suspend fun animateScrollToItem(@AndroidXIntRange(from = 0) index: Int, scrollOffset: Int = 0) {
-        scroll {
-            LazyLayoutScrollScope(this@LazyListState, this)
-                .animateScrollToItem(index, scrollOffset, NumberOfItemsToTeleport, density)
+        try {
+            skipItemPlacementAnimation = true
+            scroll {
+                LazyLayoutScrollScope(this@LazyListState, this)
+                    .animateScrollToItem(index, scrollOffset, NumberOfItemsToTeleport, density)
+            }
+        } finally {
+            skipItemPlacementAnimation = false
         }
     }
 

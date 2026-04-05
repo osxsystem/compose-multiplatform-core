@@ -26,9 +26,9 @@ import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.asSkiaPath
+import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.DrawStyle
-import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.skiaCanvas
 import androidx.compose.ui.graphics.toComposeRect
 import androidx.compose.ui.text.internal.requirePrecondition
 import androidx.compose.ui.text.platform.SkiaParagraphIntrinsics
@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.isUnspecified
 import kotlin.math.floor
 import org.jetbrains.skia.FontMetrics
 import org.jetbrains.skia.IRange
+import org.jetbrains.skia.PathBuilder
 import org.jetbrains.skia.paragraph.Direction
 import org.jetbrains.skia.paragraph.LineMetrics
 import org.jetbrains.skia.paragraph.RectHeightMode
@@ -170,11 +171,11 @@ internal class SkiaParagraph(
             RectHeightMode.MAX,
             RectWidthMode.TIGHT
         )
-        val path = Path()
+        val pathBuilder = PathBuilder()
         for (b in boxes) {
-            path.asSkiaPath().addRect(b.rect)
+            pathBuilder.addRect(b.rect.left, b.rect.top, b.rect.right, b.rect.bottom)
         }
-        return path
+        return pathBuilder.detach().asComposePath()
     }
 
     override fun getCursorRect(offset: Int): Rect {
@@ -183,7 +184,7 @@ internal class SkiaParagraph(
         val line = lineMetricsForOffset(offset)!!
 
         // workaround for https://bugs.chromium.org/p/skia/issues/detail?id=11321 :(
-        // Otherwise it shows a big cursor on a new empty line https://github.com/JetBrains/compose-jb/issues/1895
+        // Otherwise it shows a big cursor on a new empty line https://youtrack.jetbrains.com/issue/CMP-1895
         val isNewEmptyLine = offset - 1 == line.startIndex && offset == text.length
         val metrics = defaultFont.metrics
 
@@ -332,17 +333,18 @@ internal class SkiaParagraph(
         val lineMetrics = if (text.isEmpty()) {
             layouter.emptyLineMetrics(paragraph)
         } else {
-            // This creates a new objects every time
+            // This getter creates a new object every time
             paragraph.lineMetrics
+                // In the case of annotated text where everything is replaced by placeholders,
+                // the line metrics may be empty
+                .ifEmpty { layouter.emptyLineMetrics(paragraph) }
         }
 
         val fontMetrics = defaultFont.metrics
-        if (lineMetrics.isNotEmpty()) {
-            lineMetrics[0] = lineMetrics[0]
-                .trimFirstAscent(fontMetrics, layouter.textStyle)
-            lineMetrics[lineMetrics.size - 1] = lineMetrics[lineMetrics.size - 1]
-                .trimLastDescent(fontMetrics, layouter.textStyle)
-        }
+        lineMetrics[0] = lineMetrics[0]
+            .trimFirstAscent(fontMetrics, layouter.textStyle)
+        lineMetrics[lineMetrics.size - 1] = lineMetrics[lineMetrics.size - 1]
+            .trimLastDescent(fontMetrics, layouter.textStyle)
 
         return lineMetrics
     }
@@ -598,7 +600,7 @@ internal class SkiaParagraph(
                 width = width
             )
         }
-        paragraph.paint(canvas.nativeCanvas, 0.0f, 0.0f)
+        paragraph.paint(canvas.skiaCanvas, 0.0f, 0.0f)
     }
 
     @ExperimentalTextApi
@@ -622,7 +624,7 @@ internal class SkiaParagraph(
                 width = width
             )
         }
-        paragraph.paint(canvas.nativeCanvas, 0.0f, 0.0f)
+        paragraph.paint(canvas.skiaCanvas, 0.0f, 0.0f)
     }
 
     @ExperimentalTextApi
@@ -651,7 +653,7 @@ internal class SkiaParagraph(
                 width = width
             )
         }
-        paragraph.paint(canvas.nativeCanvas, 0.0f, 0.0f)
+        paragraph.paint(canvas.skiaCanvas, 0.0f, 0.0f)
     }
 
     /**

@@ -82,6 +82,7 @@ import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -93,6 +94,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -208,8 +210,15 @@ object DefaultHorizontalFloatingToolbarOverride : HorizontalFloatingToolbarOverr
     override fun HorizontalFloatingToolbarOverrideScope.HorizontalFloatingToolbar() {
         val touchExplorationServiceEnabled by rememberTouchExplorationService()
         var forceCollapse by rememberSaveable { mutableStateOf(false) }
+        val shouldFocus by remember {
+            derivedStateOf { (scrollBehavior?.state?.offset ?: 0f) == 0f }
+        }
         HorizontalFloatingToolbarLayout(
-            modifier = modifier,
+            modifier =
+                modifier.then(
+                    // Make sure that an offscreen toolbar is not keyboard focusable.
+                    if (shouldFocus) Modifier else Modifier.focusProperties { canFocus = false }
+                ),
             expanded = !forceCollapse && (touchExplorationServiceEnabled || isExpanded),
             onA11yForceCollapse = { force -> forceCollapse = force },
             colors = colors,
@@ -432,8 +441,15 @@ object DefaultVerticalFloatingToolbarOverride : VerticalFloatingToolbarOverride 
     override fun VerticalFloatingToolbarOverrideScope.VerticalFloatingToolbar() {
         val touchExplorationServiceEnabled by rememberTouchExplorationService()
         var forceCollapse by rememberSaveable { mutableStateOf(false) }
+        val shouldFocus by remember {
+            derivedStateOf { (scrollBehavior?.state?.offset ?: 0f) == 0f }
+        }
         VerticalFloatingToolbarLayout(
-            modifier = modifier,
+            modifier =
+                modifier.then(
+                    // Make sure that an offscreen toolbar is not keyboard focusable.
+                    if (shouldFocus) Modifier else Modifier.focusProperties { canFocus = false }
+                ),
             expanded = !forceCollapse && (touchExplorationServiceEnabled || isExpanded),
             onA11yForceCollapse = { force -> forceCollapse = force },
             colors = colors,
@@ -1740,15 +1756,14 @@ private fun HorizontalFloatingToolbarWithFabLayout(
             toolbarMeasurable.maxIntrinsicWidth(
                 height = FloatingToolbarDefaults.ContainerSize.roundToPx()
             )
+        val targetWidth = (maxToolbarPlaceableWidth * expandedProgress.value).toInt()
+        val targetHeight = FloatingToolbarDefaults.ContainerSize.roundToPx()
         // Constraint the toolbar to the available width while taking into account the FAB width.
         val toolbarPlaceable =
             toolbarMeasurable.measure(
                 constraints.copy(
-                    maxWidth =
-                        (maxToolbarPlaceableWidth * expandedProgress.value)
-                            .coerceAtLeast(0f)
-                            .toInt(),
-                    minHeight = FloatingToolbarDefaults.ContainerSize.roundToPx(),
+                    maxWidth = targetWidth.coerceIn(0, constraints.maxWidth),
+                    minHeight = targetHeight.coerceIn(0, constraints.minHeight),
                 )
             )
 
@@ -1972,15 +1987,15 @@ private fun VerticalFloatingToolbarWithFabLayout(
             toolbarMeasurable.maxIntrinsicHeight(
                 width = FloatingToolbarDefaults.ContainerSize.roundToPx()
             )
+        val targetHeight =
+            (maxToolbarPlaceableHeight * expandedProgress.value).coerceAtLeast(0f).toInt()
+        val targetWidth = FloatingToolbarDefaults.ContainerSize.roundToPx()
         // Constraint the toolbar to the available height while taking into account the FAB height.
         val toolbarPlaceable =
             toolbarMeasurable.measure(
                 constraints.copy(
-                    maxHeight =
-                        (maxToolbarPlaceableHeight * expandedProgress.value)
-                            .coerceAtLeast(0f)
-                            .toInt(),
-                    minWidth = FloatingToolbarDefaults.ContainerSize.roundToPx(),
+                    maxHeight = targetHeight.coerceIn(0, constraints.maxHeight),
+                    minWidth = targetWidth.coerceIn(0, constraints.minWidth),
                 )
             )
 

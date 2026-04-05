@@ -25,7 +25,7 @@ import androidx.compose.mpp.demo.components.material3.BottomSheetScaffoldExample
 import androidx.compose.mpp.demo.components.material3.DateTimePickerExample
 import androidx.compose.mpp.demo.components.material3.DropdownMenu3Example
 import androidx.compose.mpp.demo.components.material3.ListDetailPaneScaffoldExample
-import androidx.compose.mpp.demo.components.material3.ModalBottomSheet3Example
+import androidx.compose.mpp.demo.components.material3.ModalBottomSheetExample
 import androidx.compose.mpp.demo.components.material3.ModalNavigationDrawerExample
 import androidx.compose.mpp.demo.components.material3.SearchBarExample
 import androidx.compose.mpp.demo.components.material3.WindowSizeClassExample
@@ -35,17 +35,17 @@ import androidx.compose.mpp.demo.textfield.TextFields
 
 private val MaterialComponents = Screen.Selection(
     "material",
-    Screen.Example("AlertDialog") { AlertDialogExample() },
-    Screen.Example("DropdownMenu") { DropdownMenuExample() },
+    Screen.Example("AlertDialog2") { AlertDialogExample() },
+    Screen.Example("DropdownMenu2") { DropdownMenuExample() },
 )
 
 private val Material3Components = Screen.Selection(
     "material3",
-    Screen.Example("AlertDialog") { AlertDialog3Example() },
+    Screen.Example("AlertDialog3") { AlertDialog3Example() },
     Screen.Example("BottomSheetScaffold") { BottomSheetScaffoldExample() },
     Screen.Example("Date & Time Pickers") { DateTimePickerExample() },
-    Screen.Example("DropdownMenu") { DropdownMenu3Example() },
-    Screen.Example("ModalBottomSheet") { ModalBottomSheet3Example() },
+    Screen.Example("DropdownMenu3") { DropdownMenu3Example() },
+    ModalBottomSheetExample,
     Screen.Example("ModalNavigationDrawer") { ModalNavigationDrawerExample() },
     Screen.Example("SearchBar") { SearchBarExample() },
     Screen.Example("WindowSizeClass") { WindowSizeClassExample() },

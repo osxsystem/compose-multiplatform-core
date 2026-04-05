@@ -18,7 +18,6 @@ package androidx.compose.ui.test
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.snapshots.Snapshot
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.draganddrop.DragAndDropTransferData
 import androidx.compose.ui.geometry.Offset
@@ -28,41 +27,59 @@ import androidx.compose.ui.graphics.asComposeCanvas
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.node.RootForTest
+import androidx.compose.ui.platform.DefaultArchitectureComponentsOwner
 import androidx.compose.ui.platform.InfiniteAnimationPolicy
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformDragAndDropManager
 import androidx.compose.ui.platform.PlatformDragAndDropSource
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
+import androidx.compose.ui.platform.PlatformWindowInsets
 import androidx.compose.ui.platform.WindowInfo
 import androidx.compose.ui.scene.CanvasLayersComposeScene
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.semantics.SemanticsNode
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.toSize
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.enableSavedStateHandles
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.math.roundToInt
 import kotlin.time.Duration
+import kotlin.time.DurationUnit
+import kotlin.time.toDuration
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.TestResult
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.yield
 import org.jetbrains.skia.Color
-import org.jetbrains.skia.IRect
 import org.jetbrains.skia.Surface
 import org.jetbrains.skiko.currentNanoTime
 
+@Deprecated(
+    message =
+        "Use `androidx.compose.ui.test.v2.runComposeUiTest` instead. The v2 APIs use " +
+            "`StandardTestDispatcher` by default to better simulate production behavior where " +
+            "coroutines are queued rather than executed immediately.",
+    level = DeprecationLevel.WARNING,
+)
 @ExperimentalTestApi
 actual fun runComposeUiTest(
     effectContext: CoroutineContext,
@@ -79,11 +96,18 @@ actual fun runComposeUiTest(
     }
 }
 
+@OptIn(InternalComposeUiApi::class, InternalTestApi::class)
+@Deprecated(
+    message =
+        "Use `androidx.compose.ui.test.v2.runSkikoComposeUiTest` instead. The v2 APIs use " +
+            "`StandardTestDispatcher` by default to better simulate production behavior where " +
+            "coroutines are queued rather than executed immediately.",
+    level = DeprecationLevel.WARNING,
+)
 @ExperimentalTestApi
 fun runSkikoComposeUiTest(
     size: Size = Size(1024.0f, 768.0f),
     density: Density = Density(1f),
-    // TODO(https://github.com/JetBrains/compose-multiplatform/issues/2960) Support effectContext
     effectContext: CoroutineContext = EmptyCoroutineContext,
     runTestContext: CoroutineContext = EmptyCoroutineContext,
     testTimeout: Duration = Duration.INFINITE,
@@ -95,35 +119,11 @@ fun runSkikoComposeUiTest(
         effectContext = effectContext,
         testTimeout = testTimeout,
         runTestContext = runTestContext,
-        density = density
+        density = density,
+        semanticsOwnerListener = null,
+        windowInsets = null,
+        useStandardTestDispatcherForComposition = false,
     ).runTest(block)
-}
-
-@InternalTestApi
-@OptIn(InternalComposeUiApi::class, ExperimentalTestApi::class)
-fun runInternalSkikoComposeUiTest(
-    width: Int = 1024,
-    height: Int = 768,
-    density: Density = Density(1f),
-    effectContext: CoroutineContext = EmptyCoroutineContext,
-    runTestContext: CoroutineContext = EmptyCoroutineContext,
-    testTimeout: Duration = Duration.INFINITE,
-    semanticsOwnerListener: PlatformContext.SemanticsOwnerListener? = null,
-    coroutineDispatcher: TestDispatcher = defaultTestDispatcher(),
-    block: suspend SkikoComposeUiTest.() -> Unit
-): TestResult {
-    return runTest {
-        SkikoComposeUiTest(
-            width = width,
-            height = height,
-            effectContext = effectContext,
-            runTestContext = runTestContext,
-            testTimeout = testTimeout,
-            density = density,
-            semanticsOwnerListener = semanticsOwnerListener,
-            coroutineDispatcher = coroutineDispatcher,
-        ).runTest(block)
-    }
 }
 
 /**
@@ -131,13 +131,6 @@ fun runInternalSkikoComposeUiTest(
  * Empirically checked that Android (espresso, really) tests approximately at this rate.
  */
 private const val IDLING_RESOURCES_CHECK_INTERVAL_MS = 20L
-
-/**
- * Returns the default [TestDispatcher] to use in tests.
- */
-@OptIn(ExperimentalCoroutinesApi::class)
-@InternalTestApi
-fun defaultTestDispatcher(): TestDispatcher = UnconfinedTestDispatcher()
 
 /**
  * @param effectContext The [CoroutineContext] used to run the composition. The context for
@@ -148,32 +141,27 @@ fun defaultTestDispatcher(): TestDispatcher = UnconfinedTestDispatcher()
 open class SkikoComposeUiTest @InternalTestApi constructor(
     width: Int = 1024,
     height: Int = 768,
-    // TODO(https://github.com/JetBrains/compose-multiplatform/issues/2960) Support effectContext
-    effectContext: CoroutineContext = EmptyCoroutineContext,
+    private val effectContext: CoroutineContext = EmptyCoroutineContext,
     private val runTestContext: CoroutineContext = EmptyCoroutineContext,
     private val testTimeout: Duration = Duration.INFINITE,
     override val density: Density = Density(1f),
     private val semanticsOwnerListener: PlatformContext.SemanticsOwnerListener?,
-    private val coroutineDispatcher: TestDispatcher = defaultTestDispatcher(),
+    private val windowInsets: PlatformWindowInsets?,
+    private val useStandardTestDispatcherForComposition: Boolean,
 ) : ComposeUiTest {
-    init {
-        require(effectContext == EmptyCoroutineContext) {
-            "The argument effectContext isn't supported yet. " +
-                "Follow https://github.com/JetBrains/compose-multiplatform/issues/2960"
-        }
-    }
-
     constructor(
         width: Int = 1024,
         height: Int = 768,
         effectContext: CoroutineContext = EmptyCoroutineContext,
         density: Density = Density(1f),
-    ) : this (
+    ) : this(
         width = width,
         height = height,
         effectContext = effectContext,
         density = density,
         semanticsOwnerListener = null,
+        windowInsets = null,
+        useStandardTestDispatcherForComposition = true,
     )
 
     constructor(
@@ -191,19 +179,35 @@ open class SkikoComposeUiTest @InternalTestApi constructor(
         testTimeout = testTimeout,
         density = density,
         semanticsOwnerListener = null,
+        windowInsets = null,
+        useStandardTestDispatcherForComposition = true,
     )
 
     private val composeRootRegistry = ComposeRootRegistry()
 
+    private val customTestDispatcher: TestDispatcher? =
+        effectContext[ContinuationInterceptor] as? TestDispatcher
+
+    /**
+     * We can only accept a TestDispatcher here because we need to access its scheduler. Use the
+     * TestDispatcher if it is provided in the effectContext Otherwise, use the
+     * TestCoroutineScheduler if it is provided
+     */
+    private val compositionCoroutineDispatcher: TestDispatcher =
+        customTestDispatcher
+            ?: effectContext.createDefaultTestDispatcher(useStandardTestDispatcherForComposition)
+
     private val mainClockImpl = MainTestClockImpl(
-        scheduler = coroutineDispatcher.scheduler,
+        scheduler = compositionCoroutineDispatcher.scheduler,
         frameDelayMillis = FRAME_DELAY_MILLIS,
-        isStandardTestDispatcherSupportEnabled = ComposeUiTestFlags.isStandardTestDispatcherSupportEnabled,
+        isStandardTestDispatcherSupportEnabled = useStandardTestDispatcherForComposition
     )
     override val mainClock: MainTestClock
         get() = mainClockImpl
 
-    private val uncaughtExceptionHandler = UncaughtExceptionHandler()
+    private val uncaughtExceptionHandler = UncaughtExceptionHandler(
+        effectContext[CoroutineExceptionHandler]
+    )
     private val infiniteAnimationPolicy = object : InfiniteAnimationPolicy {
         override suspend fun <R> onInfiniteOperation(block: suspend () -> R): R {
             if (mainClock.autoAdvance) {
@@ -212,8 +216,14 @@ open class SkikoComposeUiTest @InternalTestApi constructor(
             return block()
         }
     }
-    private val coroutineContext =
-        coroutineDispatcher + uncaughtExceptionHandler + infiniteAnimationPolicy
+
+    private val recomposerCoroutineScope = CoroutineScope(
+        effectContext +
+            compositionCoroutineDispatcher +
+            infiniteAnimationPolicy +
+            uncaughtExceptionHandler +
+            Job()
+    )
 
     private val surface = Surface.makeRasterN32Premul(width, height)
     private val size = IntSize(width, height)
@@ -223,6 +233,8 @@ open class SkikoComposeUiTest @InternalTestApi constructor(
         @InternalTestApi
         set
 
+    private val architectureComponentsOwner =
+        DefaultArchitectureComponentsOwner(enforceMainThread = false)
     private val testOwner = SkikoTestOwner()
     private val testContext = TestContext(testOwner)
 
@@ -237,10 +249,18 @@ open class SkikoComposeUiTest @InternalTestApi constructor(
         val testDispatcher: CoroutineDispatcher =
             runTestContext[CoroutineDispatcher] ?: StandardTestDispatcher()
 
+        val combinedRunTestCoroutineContext =
+            recomposerCoroutineScope.coroutineContext
+                .minusKey(CoroutineExceptionHandler.Key)
+                .minusKey(Job.Key)
+                .minusKey(TestCoroutineScheduler.Key)
+                .plus(runTestContext)
+                .plus(testDispatcher)
+
         // Note: on web this call returns immediately (it returns a Promise),
         return runTest(
             timeout = testTimeout,
-            context = runTestContext.plus(testDispatcher)
+            context = combinedRunTestCoroutineContext
         ) {
             composeRootRegistry.withRegistry {
                 withScene {
@@ -260,20 +280,20 @@ open class SkikoComposeUiTest @InternalTestApi constructor(
     }
 
     private inline fun <R> withScene(block: () -> R): R {
-        scene = runOnUiThread(::createUi)
+        runOnUiThread(::createScene)
         try {
             return block()
         } finally {
-            runOnUiThread(scene::close)
+            runOnUiThread(::closeScene)
             // After the scene is closed, run all left foreground TestDispatchEvent.
             // They might've been added outside the runTest call, using the provided coroutineDispatcher:
-            coroutineDispatcher.scheduler.advanceUntilIdle()
+            compositionCoroutineDispatcher.scheduler.advanceUntilIdle()
             uncaughtExceptionHandler.throwUncaught()
         }
     }
 
     private inline fun <R> withRenderLoop(block: () -> R): R {
-        val scope = CoroutineScope(coroutineContext)
+        val scope = recomposerCoroutineScope
         return try {
             scope.launch {
                 while (isActive) {
@@ -300,13 +320,22 @@ open class SkikoComposeUiTest @InternalTestApi constructor(
         )
     }
 
-    private fun createUi(): ComposeScene = CanvasLayersComposeScene(
-        density = density,
-        size = size,
-        coroutineContext = coroutineContext,
-        platformContext = TestContext(),
-        invalidate = { }
-    )
+    private fun createScene() {
+        scene = CanvasLayersComposeScene(
+            density = density,
+            size = size,
+            coroutineContext = recomposerCoroutineScope.coroutineContext,
+            platformContext = TestContext(),
+            invalidate = { }
+        )
+        architectureComponentsOwner.enableSavedStateHandles()
+        architectureComponentsOwner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+    }
+
+    private fun closeScene() {
+        architectureComponentsOwner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+        scene.close()
+    }
 
     private fun advanceIfNeededAndRenderNextFrame() {
         if (mainClock.autoAdvance) {
@@ -330,13 +359,14 @@ open class SkikoComposeUiTest @InternalTestApi constructor(
         }
 
         return !Snapshot.current.hasPendingChanges()
-                && !Snapshot.isApplyObserverNotificationPending
-                && !scene.hasInvalidations()
-                && areAllResourcesIdle()
+            && !Snapshot.isApplyObserverNotificationPending
+            && !scene.hasInvalidations()
+            && areAllResourcesIdle()
     }
 
     override fun waitForIdle() {
-        // TODO: consider adding a timeout to avoid an infinite loop?
+        val startedAt = currentNanoTime().toDuration(DurationUnit.NANOSECONDS)
+        var lastReportedElapsedSeconds = 0L
         // always check even if we are idle
         uncaughtExceptionHandler.throwUncaught()
         while (!isIdle()) {
@@ -344,6 +374,12 @@ open class SkikoComposeUiTest @InternalTestApi constructor(
             uncaughtExceptionHandler.throwUncaught()
             if (!areAllResourcesIdle()) {
                 sleep(IDLING_RESOURCES_CHECK_INTERVAL_MS)
+            }
+            val currentTime = currentNanoTime().toDuration(DurationUnit.NANOSECONDS)
+            val elapsedSeconds = (currentTime - startedAt).inWholeSeconds
+            if (elapsedSeconds > lastReportedElapsedSeconds) {
+                println("Suspicious! waitForIdle has not finished after $elapsedSeconds seconds.")
+                lastReportedElapsedSeconds = elapsedSeconds
             }
         }
     }
@@ -429,8 +465,12 @@ open class SkikoComposeUiTest @InternalTestApi constructor(
 
     fun captureToImage(semanticsNode: SemanticsNode): ImageBitmap {
         val rect = semanticsNode.boundsInWindow
-        val iRect = IRect.makeLTRB(rect.left.toInt(), rect.top.toInt(), rect.right.toInt(), rect.bottom.toInt())
-        val image = surface.makeImageSnapshot(iRect)
+        val image = surface.makeImageSnapshot(
+            rect.left.toInt(),
+            rect.top.toInt(),
+            rect.right.toInt(),
+            rect.bottom.toInt()
+        )
         return image!!.toComposeImageBitmap()
     }
 
@@ -464,9 +504,11 @@ open class SkikoComposeUiTest @InternalTestApi constructor(
         override val isWindowFocused: Boolean
             get() = true
 
-        @ExperimentalComposeUiApi
         override val containerSize: IntSize
             get() = size
+
+        override val containerDpSize: DpSize
+            get() = with(density) { size.toSize().toDpSize() }
     }
 
     private inner class TestDragAndDropManager : PlatformDragAndDropManager {
@@ -496,14 +538,16 @@ open class SkikoComposeUiTest @InternalTestApi constructor(
         }
     }
 
-    private inner class TestContext : PlatformContext by PlatformContext.Empty {
+    private inner class TestContext : PlatformContext by PlatformContext.Empty() {
         override val windowInfo: WindowInfo = TestWindowInfo()
-
+        override val architectureComponentsOwner get() = this@SkikoComposeUiTest.architectureComponentsOwner
         override val rootForTestListener: PlatformContext.RootForTestListener
             get() = composeRootRegistry
 
         override val semanticsOwnerListener: PlatformContext.SemanticsOwnerListener?
             get() = this@SkikoComposeUiTest.semanticsOwnerListener
+        override val windowInsets: PlatformWindowInsets
+            get() = this@SkikoComposeUiTest.windowInsets ?: super.windowInsets
 
         override val dragAndDropManager: PlatformDragAndDropManager = TestDragAndDropManager()
 
@@ -526,7 +570,18 @@ actual sealed interface ComposeUiTest : SemanticsNodeInteractionsProvider {
         timeoutMillis: Long,
         condition: () -> Boolean
     )
+
     actual fun setContent(composable: @Composable () -> Unit)
 }
 
 private const val FRAME_DELAY_MILLIS = 16L
+
+@OptIn(ExperimentalCoroutinesApi::class)
+private fun CoroutineContext.createDefaultTestDispatcher(
+    useStandardTestDispatcher: Boolean
+): TestDispatcher {
+    if (useStandardTestDispatcher) {
+        return StandardTestDispatcher(this[TestCoroutineScheduler])
+    }
+    return UnconfinedTestDispatcher(this[TestCoroutineScheduler])
+}

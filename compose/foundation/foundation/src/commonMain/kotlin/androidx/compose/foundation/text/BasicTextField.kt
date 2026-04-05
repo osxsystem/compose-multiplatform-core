@@ -25,11 +25,9 @@ import androidx.compose.foundation.gestures.scrollable
 import androidx.compose.foundation.interaction.Interaction
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.overscroll
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.contextmenu.modifier.ToolbarRequesterImpl
 import androidx.compose.foundation.text.handwriting.stylusHandwriting
@@ -48,6 +46,7 @@ import androidx.compose.foundation.text.input.internal.TextFieldDecoratorModifie
 import androidx.compose.foundation.text.input.internal.TextFieldTextLayoutModifier
 import androidx.compose.foundation.text.input.internal.TextLayoutState
 import androidx.compose.foundation.text.input.internal.TransformedTextFieldState
+import androidx.compose.foundation.text.input.internal.collectIsDragAndDropHoveredAsState
 import androidx.compose.foundation.text.input.internal.selection.TextFieldSelectionState
 import androidx.compose.foundation.text.input.internal.selection.TextFieldSelectionState.InputType
 import androidx.compose.foundation.text.input.internal.selection.TextToolbarHandler
@@ -75,6 +74,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -89,8 +89,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.intl.LocaleList
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.constrain
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -260,7 +262,7 @@ internal fun BasicTextField(
     val interactionSource = interactionSource ?: remember { MutableInteractionSource() }
     val orientation = if (singleLine) Orientation.Horizontal else Orientation.Vertical
     val isFocused = interactionSource.collectIsFocusedAsState().value
-    val isDragHovered = interactionSource.collectIsHoveredAsState().value
+    val isDragHovered = interactionSource.collectIsDragAndDropHoveredAsState().value
     // Avoid reading LocalWindowInfo.current.isWindowFocused when the text field is not focused;
     // otherwise all text fields in a window will be recomposed when it becomes focused.
     val isWindowAndTextFieldFocused = isFocused && LocalWindowInfo.current.isWindowFocused
@@ -336,29 +338,31 @@ internal fun BasicTextField(
                         currentTextToolbar.showMenu(
                             rect = rect,
                             onCopyRequested =
-                                menuItem(canCopy(), TextToolbarState.None) {
+                                menuItem(canShowCopyMenuItem(), TextToolbarState.None) {
                                     coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
                                         copy()
                                     }
                                 },
                             onPasteRequested =
-                                menuItem(canPaste(), TextToolbarState.None) {
+                                menuItem(canShowPasteMenuItem(), TextToolbarState.None) {
                                     coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
                                         paste()
                                     }
                                 },
                             onCutRequested =
-                                menuItem(canCut(), TextToolbarState.None) {
+                                menuItem(canShowCutMenuItem(), TextToolbarState.None) {
                                     coroutineScope.launch(start = CoroutineStart.UNDISPATCHED) {
                                         cut()
                                     }
                                 },
                             onSelectAllRequested =
-                                menuItem(canSelectAll(), TextToolbarState.Selection) {
+                                menuItem(canShowSelectAllMenuItem(), TextToolbarState.Selection) {
                                     selectAll()
                                 },
                             onAutofillRequested =
-                                menuItem(canAutofill(), TextToolbarState.None) { autofill() },
+                                menuItem(canShowAutofillMenuItem(), TextToolbarState.None) {
+                                    autofill()
+                                },
                         )
                     }
 
@@ -370,12 +374,11 @@ internal fun BasicTextField(
             }
         }
 
-    // TODO: upstreaming https://youtrack.jetbrains.com/issue/CMP-7517/Upstream-rememberClipboardEventsHandler
     rememberClipboardEventsHandler(
         isEnabled = isFocused,
-        onPaste = { textFieldSelectionState.pasteAsPlainText(it) },
+        onPaste = { textFieldSelectionState.onPasteEvent(it) },
         onCopy = { textFieldSelectionState.copyWithResult() },
-        onCut = { textFieldSelectionState.cutWithResult() }
+        onCut = { textFieldSelectionState.cutWithResult() },
     )
 
     SideEffect {
@@ -478,11 +481,12 @@ internal fun BasicTextField(
                 Box(
                     propagateMinConstraints = true,
                     modifier =
-                        Modifier.heightIn(min = textLayoutState.minHeightForSingleLineField)
+                        Modifier.minHeightForSingleLineField(textLayoutState)
                             .heightInLines(
                                 textStyle = textStyle,
                                 minLines = minLines,
                                 maxLines = maxLines,
+                                softWrap = !singleLine,
                             )
                             .textFieldMinSize(textStyle)
                             .clipToBounds()
@@ -532,6 +536,26 @@ internal fun BasicTextField(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
+private fun Modifier.minHeightForSingleLineField(textLayoutState: TextLayoutState) =
+    if (ComposeFoundationFlags.isBasicTextFieldMinSizeOptimizationEnabled) {
+        layout { measurable, constraints ->
+            val wrappedConstraints =
+                constraints.constrain(
+                    Constraints(
+                        minWidth = 0,
+                        maxWidth = Constraints.Infinity,
+                        minHeight = textLayoutState.minHeightForSingleLineField.roundToPx(),
+                        maxHeight = Constraints.Infinity,
+                    )
+                )
+            val placeable = measurable.measure(wrappedConstraints)
+            layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
+        }
+    } else {
+        heightIn(min = textLayoutState.minHeightForSingleLineField)
+    }
+
+@OptIn(ExperimentalFoundationApi::class)
 private fun Modifier.addContextMenuComponents(
     textFieldSelectionState: TextFieldSelectionState,
     coroutineScope: CoroutineScope,
@@ -543,11 +567,11 @@ private fun Modifier.addContextMenuComponents(
 @Composable
 internal fun TextFieldCursorHandle(selectionState: TextFieldSelectionState) {
     // Does not recompose if only position of the handle changes.
-    val cursorHandleState by
+    val cursorHandleVisible by
         remember(selectionState) {
-            derivedStateOf { selectionState.getCursorHandleState(includePosition = false) }
+            derivedStateOf { selectionState.getCursorHandleState(includePosition = false).visible }
         }
-    if (cursorHandleState.visible) {
+    if (cursorHandleVisible) {
         CursorHandle(
             offsetProvider = {
                 selectionState.getCursorHandleState(includePosition = true).position
@@ -573,7 +597,9 @@ internal fun TextFieldSelectionHandles(selectionState: TextFieldSelectionState) 
                 )
             }
         }
-    if (startHandleState.visible) {
+    // Read once here to avoid repeating derived state reads
+    val startHandle = startHandleState
+    if (startHandle.visible) {
         SelectionHandle(
             offsetProvider = {
                 selectionState
@@ -581,13 +607,13 @@ internal fun TextFieldSelectionHandles(selectionState: TextFieldSelectionState) 
                     .position
             },
             isStartHandle = true,
-            direction = startHandleState.direction,
-            handlesCrossed = startHandleState.handlesCrossed,
+            direction = startHandle.direction,
+            handlesCrossed = startHandle.handlesCrossed,
             modifier =
                 Modifier.pointerInput(selectionState) {
                     with(selectionState) { selectionHandleGestures(true) }
                 },
-            lineHeight = startHandleState.lineHeight,
+            lineHeight = startHandle.lineHeight,
             minTouchTargetSize = MinTouchTargetSizeForHandles,
         )
     }
@@ -602,7 +628,9 @@ internal fun TextFieldSelectionHandles(selectionState: TextFieldSelectionState) 
                 )
             }
         }
-    if (endHandleState.visible) {
+    // Read once here to avoid repeating derived state reads
+    val endHandle = endHandleState
+    if (endHandle.visible) {
         SelectionHandle(
             offsetProvider = {
                 selectionState
@@ -610,13 +638,13 @@ internal fun TextFieldSelectionHandles(selectionState: TextFieldSelectionState) 
                     .position
             },
             isStartHandle = false,
-            direction = endHandleState.direction,
-            handlesCrossed = endHandleState.handlesCrossed,
+            direction = endHandle.direction,
+            handlesCrossed = endHandle.handlesCrossed,
             modifier =
                 Modifier.pointerInput(selectionState) {
                     with(selectionState) { selectionHandleGestures(false) }
                 },
-            lineHeight = endHandleState.lineHeight,
+            lineHeight = endHandle.lineHeight,
             minTouchTargetSize = MinTouchTargetSizeForHandles,
         )
     }

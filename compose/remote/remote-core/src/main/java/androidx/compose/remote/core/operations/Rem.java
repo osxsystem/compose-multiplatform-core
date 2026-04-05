@@ -17,6 +17,7 @@ package androidx.compose.remote.core.operations;
 
 import static androidx.compose.remote.core.documentation.DocumentedOperation.UTF8;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteContext;
@@ -32,6 +33,7 @@ import org.jspecify.annotations.NonNull;
 import java.util.List;
 
 /** this is an in code comment block used in debugging and IDE support */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class Rem extends Operation implements SerializableToString, Serializable {
     private static final int OP_CODE = Operations.REM;
     private static final String CLASS_NAME = "Rem";
@@ -109,9 +111,10 @@ public class Rem extends Operation implements SerializableToString, Serializable
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Data Operations", OP_CODE, CLASS_NAME)
-                .description("Rem adds a remark to the document ")
-                .field(UTF8, "text", "encode text as a string");
+        doc.operation("Document Protocol Operations", OP_CODE, CLASS_NAME)
+                .addedVersion(7)
+                .description("Embed a remark or comment string in the document")
+                .field(UTF8, "text", "The comment string");
     }
 
     @Override

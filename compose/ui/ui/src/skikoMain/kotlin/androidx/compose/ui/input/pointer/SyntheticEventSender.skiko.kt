@@ -21,7 +21,9 @@ import androidx.compose.ui.scene.PointerEventResult
 import androidx.compose.ui.scene.merging
 import androidx.compose.ui.util.fastAll
 import androidx.compose.ui.util.fastAny
+import androidx.compose.ui.util.fastFirstOrNull
 import androidx.compose.ui.util.fastMap
+import androidx.compose.ui.util.fastMapNotNull
 
 /**
  * Compose or user code can't work well if we miss some events.
@@ -38,7 +40,7 @@ import androidx.compose.ui.util.fastMap
  * The alternative of sending synthetic moves is to send a native press/release as
  * Enter/Exit separately from Press/Release.
  * But this approach requires more changes - we need a separate HitPathTracker for Enter/Exit.
- * The user code  won't see anything new with this approach
+ * The user code won't see anything new with this approach
  * (besides that Enter/Exit event will have nativeEvent.type == Release/Press)
  *
  * We don't send synthetic events for touch, as it doesn't have Enter/Exit, and it will be
@@ -56,6 +58,9 @@ internal class SyntheticEventSender(
 ) {
     private val _send: (PointerInputEvent) -> PointerEventResult = send
     private var previousEvent: PointerInputEvent? = null
+    private var isMousePointerInside: Boolean = false
+    private var isScaleGestureInProgress: Boolean = false
+    private var isPanGestureInProgress: Boolean = false
 
     /**
      * If something happened with Compose content (it relayouted), we need to send an
@@ -70,36 +75,113 @@ internal class SyntheticEventSender(
     fun reset() {
         needUpdatePointerPosition = false
         previousEvent = null
+        isScaleGestureInProgress = false
+        isPanGestureInProgress = false
     }
 
     /**
      * Send [event] and synthetic events before it if needed. On each sent event we just call [send]
      */
     fun send(event: PointerInputEvent): PointerEventResult {
+        trackMousePointerState(event)
+
         val syntheticMoveForHoverResult = sendMissingMoveForHover(event)
         val syntheticReleasesResult = sendMissingReleases(event)
         val syntheticPressesResult = sendMissingPresses(event)
-        val eventResult = sendInternal(event)
+        val syntheticScaleEndResult = sendMissingScaleEnd(event)
+        val syntheticScaleStartResult = sendMissingScaleStart(event)
+        val syntheticPanEndResult = sendMissingPanEnd(event)
+        val syntheticPanStartResult = sendMissingPanStart(event)
+        val eventResult = if (shouldSend(event)) sendInternal(event) else sendNativeEventOnly(event)
         return syntheticMoveForHoverResult.merging(
             syntheticReleasesResult,
             syntheticPressesResult,
+            syntheticScaleEndResult,
+            syntheticScaleStartResult,
+            syntheticPanEndResult,
+            syntheticPanStartResult,
             eventResult
         )
     }
 
-    fun updatePointerPosition(): PointerEventResult {
-        if (needUpdatePointerPosition) {
-            needUpdatePointerPosition = false
+    private fun trackMousePointerState(event: PointerInputEvent) {
+        if (!event.pointers.fastAny { it.type == PointerType.Mouse }) return
 
-            previousEvent?.let { event ->
-                // Re-send pointer position update only for hover mouse events.
-                // Aligned with [AndroidComposeView.resendMotionEventOnLayout], but fixing b/397352507.
-                if (event.pointers.fastAny { it.type == PointerType.Mouse }) {
-                    return sendSyntheticMove(event)
-                }
-            }
+        when (event.eventType) {
+            // Mark as true not just on Enter, just in case the system didn't send
+            // us an Enter event (also, some tests don't bother sending it)
+            PointerEventType.Enter,
+            PointerEventType.Move,
+            PointerEventType.Press,
+            PointerEventType.Scroll,
+            PointerEventType.ScaleStart,
+            PointerEventType.ScaleChange,
+            PointerEventType.ScaleEnd,
+            PointerEventType.PanStart,
+            PointerEventType.PanMove,
+            PointerEventType.PanEnd,
+                -> isMousePointerInside = true
+            PointerEventType.Exit
+                -> isMousePointerInside = false
         }
-        return PointerEventResult(anyMovementConsumed = false)
+    }
+
+    /**
+     * Returns whether the given event should be sent.
+     *
+     * An event could be filtered out if, for example, it is a duplicate of the previous event.
+     */
+    private fun shouldSend(event: PointerInputEvent): Boolean {
+        // Filter out press/release events with the same pressed pointers, buttons and keyboard
+        // modifiers as the previous event.
+        // Note that missing move events for this event should have already been sent
+        fun areSameParams(e1: PointerInputEvent, e2: PointerInputEvent): Boolean {
+            if (e1.pressedIds().toSet() != e2.pressedIds().toSet()) return false
+            if (e1.buttons != e2.buttons) return false
+            if (e1.keyboardModifiers != e2.keyboardModifiers) return false
+            return true
+        }
+        if (event.eventType == PointerEventType.Press) {
+            val prevEvent = previousEvent
+            if ((prevEvent != null) && areSameParams(event, prevEvent)) return false
+        }
+        if (event.eventType == PointerEventType.Release) {
+            val prevEvent = previousEvent ?: return false
+            if (areSameParams(event, prevEvent)) return false
+        }
+
+        return true
+    }
+
+    /**
+     * When an event generated as a result of a native event is filtered out (see [shouldSend]),
+     * we nevertheless want listeners to native events to receive them.
+     * This method sends an event with a type of [PointerEventType.Unknown] so that listeners can
+     * still receive it.
+     */
+    private fun sendNativeEventOnly(event: PointerInputEvent): PointerEventResult {
+        if (event.nativeEvent == null) return UnconsumedEventResult
+        return _send(event.copy(eventType = PointerEventType.Unknown))
+    }
+
+    fun updatePointerPosition(): PointerEventResult {
+        val nothingConsumed = UnconsumedEventResult
+
+        if (!needUpdatePointerPosition) return nothingConsumed
+        needUpdatePointerPosition = false
+
+        // Re-send pointer position update only for mouse events.
+        // Aligned with [AndroidComposeView.resendMotionEventOnLayout], but fixing b/397352507.
+        val previousEvent = previousEvent ?: return nothingConsumed
+        val mousePointer = previousEvent.pointers.fastFirstOrNull { it.type == PointerType.Mouse }
+            ?: return nothingConsumed
+
+        // Send synthetic move only if the scene is the current "target" of mouse events
+        return if (isMousePointerInside || mousePointer.down) {
+            sendSyntheticMove(previousEvent)
+        } else {
+            nothingConsumed
+        }
     }
 
     /**
@@ -108,7 +190,7 @@ internal class SyntheticEventSender(
     private fun sendSyntheticMove(
         pointersSourceEvent: PointerInputEvent
     ): PointerEventResult {
-        val previousEvent = previousEvent ?: return PointerEventResult(anyMovementConsumed = false)
+        val previousEvent = previousEvent ?: return UnconsumedEventResult
         val idToPosition = pointersSourceEvent.pointers.associate { it.id to it.position }
         return sendInternal(
             previousEvent.copySynthetic(
@@ -123,26 +205,28 @@ internal class SyntheticEventSender(
     ): PointerEventResult {
         // issuesEnterExit means that the pointer can issues hover events (enter/exit), and so we
         // should generate a synthetic Move (see why we need to do that in the class description)
-        return if (currentEvent.pointers.any { it.activeHover } &&
+        return if (currentEvent.pointers.fastAny { it.activeHover } &&
             isMoveEventMissing(previousEvent, currentEvent)) {
             sendSyntheticMove(currentEvent)
         } else {
-            PointerEventResult(anyMovementConsumed = false)
+            UnconsumedEventResult
         }
     }
 
     private fun sendMissingReleases(currentEvent: PointerInputEvent): PointerEventResult {
-        val previousEvent = previousEvent ?: return PointerEventResult(anyMovementConsumed = false)
+        val previousEvent = previousEvent ?: return UnconsumedEventResult
         val previousPressed = previousEvent.pressedIds()
         val currentPressed = currentEvent.pressedIds()
         val newReleased = (previousPressed - currentPressed.toSet()).toList()
         val sendingAsUp = HashSet<PointerId>(newReleased.size)
 
-        var result = PointerEventResult(anyMovementConsumed = false)
-        // Don't send the first released pointer
-        // It will be sent as a real event. Here we only need to send synthetic events
-        // before a real one.
-        for (i in newReleased.size - 2 downTo 0) {
+        var result = UnconsumedEventResult
+        val lastIndex = when (currentEvent.eventType) {
+            // The "real" event itself will be the last one
+            PointerEventType.Release -> newReleased.lastIndex - 1
+            else -> newReleased.lastIndex
+        }
+        for (i in lastIndex downTo 0) {
             sendingAsUp.add(newReleased[i])
 
             sendInternal(
@@ -167,11 +251,13 @@ internal class SyntheticEventSender(
         val newPressed = (currentPressed - previousPressed).toList()
         val sendingAsDown = HashSet<PointerId>(newPressed.size)
 
-        var result = PointerEventResult(anyMovementConsumed = false)
-        // Don't send the last pressed pointer (newPressed.size - 1)
-        // It will be sent as a real event. Here we only need to send synthetic events
-        // before a real one.
-        for (i in 0..newPressed.size - 2) {
+        var result = UnconsumedEventResult
+        val lastIndex = when (currentEvent.eventType) {
+            // The "real" event itself will be the last one
+            PointerEventType.Press -> newPressed.lastIndex - 1
+            else -> newPressed.lastIndex
+        }
+        for (i in 0..lastIndex) {
             sendingAsDown.add(newPressed[i])
 
             sendInternal(
@@ -190,15 +276,69 @@ internal class SyntheticEventSender(
         return result
     }
 
-    private fun PointerInputEvent.pressedIds(): Sequence<PointerId> =
-        pointers.asSequence().filter { it.down }.map { it.id }
+    private fun PointerInputEvent.pressedIds(): List<PointerId> =
+        pointers.fastMapNotNull { if (it.down) it.id else null }
+
 
     private fun sendInternal(event: PointerInputEvent): PointerEventResult {
-        val anyMovementConsumed = _send(event)
+        when (event.eventType) {
+            PointerEventType.ScaleStart -> isScaleGestureInProgress = true
+            PointerEventType.ScaleEnd -> isScaleGestureInProgress = false
+            PointerEventType.PanStart -> isPanGestureInProgress = true
+            PointerEventType.PanEnd -> isPanGestureInProgress = false
+            else -> {}
+        }
+        val result = _send(event)
+        if (!result.dispatchedToAPointerInputModifier) {
+            // What we want to do here is to make sure to dispatch the native event if the Compose
+            // event has been filtered out by HitPathTracker. Unfortunately, there's no
+            // `PointerEventResult.eventIgnored` flag, but `dispatchedToAPointerInputModifier`
+            // seems adequate for now. It will be false also in the case of no `PointerInput` nodes,
+            // but that's ok because then our native event will also not be delivered to anyone.
+            sendNativeEventOnly(event)
+        }
         // We don't send nativeEvent for synthetic events.
         // Nullify to avoid memory leaks (native events can point to native views).
-        previousEvent = event.copy(nativeEvent = null)
-        return anyMovementConsumed
+        // Copy the pointers list because the original list may be reused
+        previousEvent = event.copy(
+            nativeEvent = null,
+            pointers = event.pointers.toList()
+        )
+        return result
+    }
+
+    private fun sendMissingScaleStart(event: PointerInputEvent): PointerEventResult {
+        return if (!isScaleGestureInProgress &&
+            (event.eventType == PointerEventType.ScaleChange || event.eventType == PointerEventType.ScaleEnd)) {
+            sendInternal(event.copySynthetic(PointerEventType.ScaleStart) { it.copySynthetic() })
+        } else {
+            UnconsumedEventResult
+        }
+    }
+
+    private fun sendMissingScaleEnd(event: PointerInputEvent): PointerEventResult {
+        return if (isScaleGestureInProgress && event.eventType == PointerEventType.ScaleStart) {
+            sendInternal(event.copySynthetic(PointerEventType.ScaleEnd) { it.copySynthetic() })
+        } else {
+            UnconsumedEventResult
+        }
+    }
+
+    private fun sendMissingPanStart(event: PointerInputEvent): PointerEventResult {
+        return if (!isPanGestureInProgress &&
+            (event.eventType == PointerEventType.PanMove || event.eventType == PointerEventType.PanEnd)) {
+            sendInternal(event.copySynthetic(PointerEventType.PanStart) { it.copySynthetic() })
+        } else {
+            UnconsumedEventResult
+        }
+    }
+
+    private fun sendMissingPanEnd(event: PointerInputEvent): PointerEventResult {
+        return if (isPanGestureInProgress && event.eventType == PointerEventType.PanStart) {
+            sendInternal(event.copySynthetic(PointerEventType.PanEnd) { it.copySynthetic() })
+        } else {
+            UnconsumedEventResult
+        }
     }
 
     private fun isMoveEventMissing(
@@ -238,16 +378,20 @@ internal class SyntheticEventSender(
         position: Offset = this.position,
         down: Boolean = this.down
     ) = PointerInputEventData(
-        id,
-        uptime,
-        position,
-        position,
-        down,
-        pressure,
-        type,
-        activeHover,
-        scrollDelta = Offset(0f, 0f),
+        id = id,
+        uptime = uptime,
+        positionOnScreen = position,
+        position = position,
+        down = down,
+        pressure = pressure,
+        type = type,
+        activeHover = activeHover,
+        scrollDelta = Offset.Zero,
         historical = emptyList(), // we don't copy historical for synthetic
-        originalEventPosition = position
+        scaleGestureFactor = 1.0f,
+        panGestureOffset = Offset.Zero,
+        originalEventPosition = position,
     )
 }
+
+private val UnconsumedEventResult = PointerEventResult(anyMovementConsumed = false)

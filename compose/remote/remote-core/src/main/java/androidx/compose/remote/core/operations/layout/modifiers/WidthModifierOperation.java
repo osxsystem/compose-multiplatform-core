@@ -18,6 +18,7 @@ package androidx.compose.remote.core.operations.layout.modifiers;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.FLOAT;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.INT;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.WireBuffer;
@@ -31,6 +32,7 @@ import org.jspecify.annotations.Nullable;
 import java.util.List;
 
 /** Set the width dimension on a component */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class WidthModifierOperation extends DimensionModifierOperation {
     private static final int OP_CODE = Operations.MODIFIER_WIDTH;
     public static final String CLASS_NAME = "WidthModifierOperation";
@@ -117,9 +119,9 @@ public class WidthModifierOperation extends DimensionModifierOperation {
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
         doc.operation("Modifier Operations", OP_CODE, CLASS_NAME)
-                .description("define the animation")
-                .field(INT, "type", "")
-                .field(FLOAT, "value", "");
+                .description("Set the width dimension on a component")
+                .field(INT, "type", "The type of dimension rule (0=FIXED, 1=WRAP, etc.)")
+                .field(FLOAT, "value", "The width value");
     }
 
     /**

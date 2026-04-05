@@ -25,6 +25,7 @@ import androidx.compose.foundation.text.input.adjustTextRange
 import androidx.compose.foundation.text.input.delete
 import androidx.compose.runtime.collection.mutableVectorOf
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.util.fastCoerceAtLeast
 import androidx.compose.ui.util.fastCoerceIn
 
 /**
@@ -50,6 +51,13 @@ internal interface ImeEditCommandScope {
      * visible to this transform function yet.
      */
     fun mapToTransformed(range: TextRange): TextRange
+
+    /**
+     * The length of the text in the transformed space. Please note that this value is calculated in
+     * the current TextFieldState. This means that the ongoing edits are not visible to this value
+     * yet.
+     */
+    val transformedLength: Int
 
     /**
      * Start a batch edit. All [edit] calls coming after [beginBatchEdit] are only executed after
@@ -98,6 +106,9 @@ internal class DefaultImeEditCommandScope(
      */
     override fun mapToTransformed(range: TextRange) =
         transformedTextFieldState.mapToTransformed(range)
+
+    override val transformedLength: Int
+        get() = transformedTextFieldState.visualText.length
 
     private val editCommands = mutableVectorOf<TextFieldBuffer.() -> Unit>()
 
@@ -178,9 +189,15 @@ internal fun ImeEditCommandScope.setComposingRegion(start: Int, end: Int) = edit
         commitComposition()
     }
 
+    val clampedTransformedStart = start.fastCoerceAtLeast(0)
+    val clampedTransformedEnd = end.fastCoerceAtLeast(0)
+
+    // First, untransform the given range because IME works in the transformed space.
+    val range = mapFromTransformed(TextRange(clampedTransformedStart, clampedTransformedEnd))
+
     // Sanitize the input: reverse if reversed, clamped into valid range, ignore empty range.
-    val clampedStart = start.coerceIn(0, length)
-    val clampedEnd = end.coerceIn(0, length)
+    val clampedStart = range.min.coerceIn(0, length)
+    val clampedEnd = range.max.coerceIn(0, length)
     if (clampedStart == clampedEnd) {
         // do nothing. empty composition range is not allowed.
     } else if (clampedStart < clampedEnd) {
@@ -262,21 +279,34 @@ internal fun ImeEditCommandScope.setComposingText(
 internal fun ImeEditCommandScope.deleteSurroundingText(
     lengthBeforeCursor: Int,
     lengthAfterCursor: Int,
-) = edit {
-    requirePrecondition(lengthBeforeCursor >= 0 && lengthAfterCursor >= 0) {
-        "Expected lengthBeforeCursor and lengthAfterCursor to be non-negative, were " +
-            "$lengthBeforeCursor and $lengthAfterCursor respectively."
+) {
+    edit {
+        requirePrecondition(lengthBeforeCursor >= 0 && lengthAfterCursor >= 0) {
+            "Expected lengthBeforeCursor and lengthAfterCursor to be non-negative, were " +
+                "$lengthBeforeCursor and $lengthAfterCursor respectively."
+        }
+
+        // All IME edit commands are generated in the transformed space because that's all the IME
+        // knows. Therefore the [lengthBeforeCursor] and [lengthAfterCursor] values are actually
+        // tailored around the transformed selection. We need to find the range that needs to be
+        // deleted in the transformed space, then come back to untransformed space to do the actual
+        // deletion.
+        val transformedSelection = mapToTransformed(selection)
+
+        // calculate the end with safe addition since lengthAfterCursor can be set to e.g. Int.MAX
+        // by the input
+        val end = transformedSelection.end.addExactOrElse(lengthAfterCursor) { transformedLength }
+        val untransformedDeleteRangeAfter =
+            mapFromTransformed(TextRange(transformedSelection.end, minOf(end, transformedLength)))
+        imeDelete(untransformedDeleteRangeAfter.min, untransformedDeleteRangeAfter.max)
+
+        // calculate the start with safe subtraction since lengthBeforeCursor can be set to e.g.
+        // Int.MAX by the input
+        val start = transformedSelection.start.subtractExactOrElse(lengthBeforeCursor) { 0 }
+        val untransformedDeleteRangeBefore =
+            mapFromTransformed(TextRange(maxOf(0, start), transformedSelection.start))
+        imeDelete(untransformedDeleteRangeBefore.min, untransformedDeleteRangeBefore.max)
     }
-
-    // calculate the end with safe addition since lengthAfterCursor can be set to e.g. Int.MAX
-    // by the input
-    val end = selection.end.addExactOrElse(lengthAfterCursor) { length }
-    imeDelete(selection.end, minOf(end, length))
-
-    // calculate the start with safe subtraction since lengthBeforeCursor can be set to e.g.
-    // Int.MAX by the input
-    val start = selection.start.subtractExactOrElse(lengthBeforeCursor) { 0 }
-    imeDelete(maxOf(0, start), selection.start)
 }
 
 /**
@@ -446,6 +476,7 @@ internal fun TextFieldBuffer.imeDelete(start: Int, end: Int) {
 
     val min = minOf(start, end)
     val max = maxOf(start, end)
+
     delete(min, max)
 
     // composition is lost by calling delete but we should restore it for delete calls that

@@ -18,6 +18,7 @@ package androidx.compose.remote.core.operations;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.FLOAT_ARRAY;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.INT;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.PaintContext;
@@ -41,6 +42,7 @@ import java.util.List;
  * Works with PathCreate.
  * TODO implement winding rule
  */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class PathAppend extends PaintOperation implements VariableSupport, Serializable {
     private static final int OP_CODE = Operations.PATH_ADD;
     private static final String CLASS_NAME = "PathAppend";
@@ -49,7 +51,8 @@ public class PathAppend extends PaintOperation implements VariableSupport, Seria
     float[] mFloatPath;
     float[] mOutputPath;
 
-    PathAppend(int instanceId, float[] floatPath) {
+    @SuppressWarnings("UnknownNullness") // Annotations on a primitive array are compile error.
+    public PathAppend(int instanceId, float[] floatPath) {
         mInstanceId = instanceId;
         mFloatPath = floatPath;
         mOutputPath = Arrays.copyOf(mFloatPath, mFloatPath.length);
@@ -180,11 +183,12 @@ public class PathAppend extends PaintOperation implements VariableSupport, Seria
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Data Operations", OP_CODE, CLASS_NAME)
-                .description("Append to a Path")
-                .field(DocumentedOperation.INT, "id", "id string")
-                .field(INT, "length", "id string")
-                .field(FLOAT_ARRAY, "pathData", "length", "path encoded as floats");
+        doc.operation("Canvas Operations", OP_CODE, CLASS_NAME)
+                .additionalDocumentation("path_append")
+                .description("Append segments to an existing dynamic path")
+                .field(DocumentedOperation.INT, "id", "The ID of the path to append to")
+                .field(INT, "length", "The number of elements in the path data")
+                .field(FLOAT_ARRAY, "pathData", "The sequence of commands and coordinates");
     }
 
     @Override

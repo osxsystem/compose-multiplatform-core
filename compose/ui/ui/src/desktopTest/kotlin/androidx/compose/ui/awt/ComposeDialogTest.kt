@@ -198,34 +198,35 @@ class ComposeDialogTest {
         val layoutPassConstraints = mutableListOf<Constraints>()
 
         runBlocking(MainUIDispatcher) {
-            val window = ComposeDialog()
+            val dialog = ComposeDialog()
             try {
-                window.size = Dimension(300, 400)
-                window.setContent {
+                dialog.size = Dimension(300, 400)
+                dialog.setContent {
                     Box(Modifier.fillMaxSize().layout { _, constraints ->
                         layoutPassConstraints.add(constraints)
                         layout(0, 0) {}
                     })
                 }
 
-                window.isUndecorated = true
-                window.isVisible = true
-                window.paint(window.graphics)
+                dialog.isUndecorated = true
+                dialog.isVisible = true
+                dialog.renderImmediately()
+
                 assertThat(layoutPassConstraints).isEqualTo(
                     listOf(
                         Constraints.fixed(
-                            width = (300 * window.density.density).toInt(),
-                            height = (400 * window.density.density).toInt(),
+                            width = (300 * dialog.density.density).toInt(),
+                            height = (400 * dialog.density.density).toInt(),
                         )
                     )
                 )
             } finally {
-                window.dispose()
+                dialog.dispose()
             }
         }
     }
 
-    // bug https://github.com/JetBrains/compose-jb/issues/1448
+    // bug https://youtrack.jetbrains.com/issue/CMP-5170
     @Test
     fun `dispose window in event handler`() = runApplicationTest {
         val window = ComposeDialog()

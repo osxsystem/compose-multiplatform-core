@@ -19,7 +19,6 @@ package androidx.compose.foundation.text.selection
 import android.os.Build
 import androidx.compose.foundation.PlatformMagnifierFactory
 import androidx.compose.foundation.internal.ClipboardUtils
-import androidx.compose.foundation.internal.hasText
 import androidx.compose.foundation.isPlatformMagnifierSupported
 import androidx.compose.foundation.magnifier
 import androidx.compose.foundation.text.TextContextMenuItems
@@ -43,10 +42,6 @@ import androidx.compose.ui.unit.IntSize
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
-
-internal actual fun TextFieldSelectionManager.isSelectionHandleInVisibleBound(
-    isStartHandle: Boolean
-): Boolean = isSelectionHandleInVisibleBoundDefault(isStartHandle)
 
 // We use composed{} to read a local, but don't provide inspector info because the underlying
 // magnifier modifier provides more meaningful inspector info.
@@ -120,20 +115,20 @@ internal actual fun Modifier.addBasicTextFieldTextContextMenuComponents(
     ) {
         with(manager) {
             separator()
-            textFieldSuspendItem(Cut, enabled = canCut()) { cut() }
-            textFieldSuspendItem(Copy, enabled = canCopy()) {
+            textFieldSuspendItem(Cut, enabled = canShowCutMenuItem()) { cut() }
+            textFieldSuspendItem(Copy, enabled = canShowCopyMenuItem()) {
                 copy(cancelSelection = textToolbarShown)
             }
-            textFieldSuspendItem(Paste, enabled = canPaste()) { paste() }
+            textFieldSuspendItem(Paste, enabled = canShowPasteMenuItem()) { paste() }
             textFieldItem(
                 SelectAll,
-                enabled = canSelectAll(),
+                enabled = canShowSelectAllMenuItem(),
                 closePredicate = { !textToolbarShown },
             ) {
                 selectAll()
             }
             if (Build.VERSION.SDK_INT >= 26) {
-                textFieldItem(Autofill, enabled = canAutofill()) { autofill() }
+                textFieldItem(Autofill, enabled = canShowAutofillMenuItem()) { autofill() }
             }
             separator()
         }
@@ -142,3 +137,7 @@ internal actual fun Modifier.addBasicTextFieldTextContextMenuComponents(
 
 internal actual suspend fun TextFieldSelectionManager.hasAvailableTextToPaste(): Boolean =
     this.clipboard?.let { ClipboardUtils.hasText(it) } ?: false
+
+internal actual fun TextFieldSelectionManager.isSelectionHandleInVisibleBound(
+    isStartHandle: Boolean
+): Boolean = isSelectionHandleInVisibleBoundDefault(isStartHandle)

@@ -15,6 +15,7 @@
  */
 package androidx.compose.remote.core.operations;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteContext;
@@ -31,6 +32,7 @@ import java.util.List;
 /**
  * This prints debugging message useful for debugging. It should not be use in production documents
  */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class DebugMessage extends Operation implements VariableSupport {
     private static final int OP_CODE = Operations.DEBUG_MESSAGE;
     private static final String CLASS_NAME = "DebugMessage";
@@ -57,6 +59,7 @@ public class DebugMessage extends Operation implements VariableSupport {
 
     @Override
     public void registerListening(@NonNull RemoteContext context) {
+        context.listensTo(mTextID, this);
         if (Float.isNaN(mFloatValue)) {
             context.listensTo(Utils.idFromNan(mFloatValue), this);
         }
@@ -132,11 +135,11 @@ public class DebugMessage extends Operation implements VariableSupport {
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("DebugMessage Operations", id(), CLASS_NAME)
+        doc.operation("Protocol Operations", id(), CLASS_NAME)
                 .description("Print debugging messages")
-                .field(DocumentedOperation.INT, "textId", "test to print")
-                .field(DocumentedOperation.FLOAT, "value", "value of a float to print")
-                .field(DocumentedOperation.INT, "flags", "print additional information");
+                .field(DocumentedOperation.INT, "textId", "The ID of the text to print")
+                .field(DocumentedOperation.FLOAT, "value", "The float value to print")
+                .field(DocumentedOperation.INT, "flags", "Flags for additional information");
     }
 
     @Override

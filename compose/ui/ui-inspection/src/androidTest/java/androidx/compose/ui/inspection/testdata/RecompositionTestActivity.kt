@@ -22,8 +22,10 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.Button
-import androidx.compose.material.Text
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -35,35 +37,33 @@ class RecompositionTestActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             Column {
-                Row {
-                    val clickCount1 = remember { mutableStateOf(0) }
-                    Column {
-                        Button(
-                            onClick = { clickCount1.value = clickCount1.value + 1 },
-                            modifier = Modifier.padding(16.dp, 4.dp),
-                        ) {
-                            Text("Click row 1")
-                        }
-                    }
-                    Column(modifier = Modifier.align(Alignment.CenterVertically)) {
-                        Text("Row 1 click count: ${clickCount1.value}")
-                    }
-                }
-                Row {
-                    val clickCount2 = remember { mutableStateOf(0) }
-                    Column {
-                        Button(
-                            onClick = { clickCount2.value = clickCount2.value + 1 },
-                            modifier = Modifier.padding(16.dp, 4.dp),
-                        ) {
-                            Text("Click row 2")
-                        }
-                    }
-                    Column(modifier = Modifier.align(Alignment.CenterVertically)) {
-                        Text("Row 2 click count: ${clickCount2.value}")
-                    }
-                }
+                Item(1)
+                Item(2)
             }
         }
+    }
+
+    @Composable
+    fun Item(number: Int) {
+        val clickCount = remember { mutableStateOf(0) }
+        val list = remember { mutableStateListOf("a", "b", "c", "d", "e", "f") }
+        Row {
+            Column {
+                Button(onClick = { clickCount.value++ }, modifier = Modifier.padding(16.dp, 4.dp)) {
+                    Text("Click row $number")
+                }
+            }
+            Column(modifier = Modifier.align(Alignment.CenterVertically)) {
+                Text("Row $number click count: ${clickCount.value}, ${list.joinToString("")}")
+                AnotherItem(clickCount.value) { clickCount.value }
+            }
+        }
+    }
+
+    /** This @Composable will have a state read every 2nd time it called from Item. */
+    @Composable
+    fun AnotherItem(number: Int, withStateRead: () -> Int) {
+        val value = if (number % 2 == 1) number + withStateRead() else number
+        Text(value.toString(), modifier = Modifier.padding(16.dp, 4.dp))
     }
 }

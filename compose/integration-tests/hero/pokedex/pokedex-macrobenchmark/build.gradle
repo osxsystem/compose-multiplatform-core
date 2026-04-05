@@ -17,13 +17,11 @@
 plugins {
     id("AndroidXPlugin")
     id("com.android.test")
+    alias(libs.plugins.kotlinSerialization)
     id("org.jetbrains.kotlin.android")
 }
 
 android {
-    defaultConfig {
-        minSdk = 23
-    }
     namespace = "androidx.compose.integration.hero.pokedex.macrobenchmark"
     targetProjectPath = ":compose:integration-tests:hero:pokedex:pokedex-macrobenchmark-target"
     experimentalProperties["android.experimental.self-instrumenting"] = true
@@ -44,4 +42,7 @@ dependencies {
     implementation(libs.testCore)
     implementation(libs.testRunner)
     implementation(libs.testUiautomator)
+    implementation(libs.okhttpMockwebserver)
+    implementation(libs.kotlinSerializationJson)
+
 }

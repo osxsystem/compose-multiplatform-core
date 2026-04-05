@@ -18,9 +18,11 @@ package androidx.compose.ui.platform.a11y
 
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.internal.fastIndexOfFirst
 import androidx.compose.ui.node.Nodes
 import androidx.compose.ui.node.requireCoordinator
 import androidx.compose.ui.semantics.AccessibilityAction
+import androidx.compose.ui.semantics.DesktopSemanticsProperties
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsActions
@@ -37,7 +39,11 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toOffset
+import androidx.compose.ui.util.fastForEach
+import androidx.compose.ui.util.fastJoinToString
+import androidx.compose.ui.util.fastRoundToInt
+import androidx.compose.ui.window.asDpOffset
 import java.awt.Color
 import java.awt.Cursor
 import java.awt.Dimension
@@ -62,10 +68,7 @@ import javax.accessibility.AccessibleTextSequence
 import javax.accessibility.AccessibleValue
 import javax.swing.text.AttributeSet
 import javax.swing.text.SimpleAttributeSet
-import kotlin.math.roundToInt
-import kotlinx.atomicfu.atomic
 import org.jetbrains.skia.BreakIterator
-import org.jetbrains.skiko.nativeInitializeAccessible
 
 private typealias ActionKey = SemanticsPropertyKey<AccessibilityAction<() -> Boolean>>
 
@@ -74,7 +77,7 @@ private typealias ActionKey = SemanticsPropertyKey<AccessibilityAction<() -> Boo
  */
 internal class ComposeAccessible(
     semanticsNode: SemanticsNode,
-    private val controller: AccessibilityController
+    private val ownerAccessibility: SemanticsOwnerAccessibility
 ) : Accessible,
     // Must be a subclass of java.awt.Component because CAccessible only registers property
     // listeners with the accessible context if the Accessible is an instance of java.awt.Component
@@ -89,42 +92,57 @@ internal class ComposeAccessible(
     var semanticsNode: SemanticsNode = semanticsNode
         set(value) {
             field = value
-            cachedSemanticsConfig = null  // Clear the cache
+            // Clear the cache
+            cachedSemanticsConfig = null
+            cachedTraversalOrderedChildren = null
         }
 
-    /**
-     * The cached [SemanticsNode.config] of [semanticsNode]; `null` if it hasn't been retrieved yet.
-     */
     private var cachedSemanticsConfig: SemanticsConfiguration? = null
 
     /**
-     * The [SemanticsNode.config] of [semanticsNode].
+     * The (cached) [SemanticsNode.config] of [semanticsNode].
      */
-    private val semanticsConfig: SemanticsConfiguration
-        get() {
-            return cachedSemanticsConfig ?: semanticsNode.config.also {
+    val semanticsConfig: SemanticsConfiguration
+        get() =
+            cachedSemanticsConfig ?: semanticsNode.config.also {
                 cachedSemanticsConfig = it
             }
-        }
 
-    private val isNativelyInitialized = atomic(false)
+    private var cachedTraversalOrderedChildren: List<SemanticsNode>? = null
+
+    /**
+     * The (cached) [SemanticsNode.traversalOrderedChildren] of [semanticsNode].
+     */
+    private val traversalOrderedChildren: List<SemanticsNode>
+        get() =
+            cachedTraversalOrderedChildren ?: semanticsNode.traversalOrderedChildren(semanticsConfig).also {
+                cachedTraversalOrderedChildren = it
+            }
 
     val composeAccessibleContext: ComposeAccessibleComponent by lazy { ComposeAccessibleComponent() }
 
-    var removed = false
+    private var disposed = false
+
+    fun dispose() {
+        disposed = true
+    }
 
     override fun getAccessibleContext(): AccessibleContext? {
-        if (removed) {
+        if (disposed) {
             // The accessibility system keeps calling functions on the context even after the node
-            // has been removed. We return null so it doesn't do that.
+            // has been removed. We return `null` so it doesn't do that.
             return null
         }
 
-        // see doc for [nativeInitializeAccessible] for details, why this initialization is needed
-        if (isNativelyInitialized.compareAndSet(expect = false, update = true)) {
-            nativeInitializeAccessible(this)
-        }
         return composeAccessibleContext
+    }
+
+    override fun toString(): String {
+        if (disposed) return "ComposeAccessible(disposed)"
+        return with(composeAccessibleContext) {
+            val description = (accessibleDescription ?: text)?.let { "\"$it\"" } ?: "unknown"
+            "ComposeAccessible(role='$accessibleRole', $description)"
+        }
     }
 
     open inner class ComposeAccessibleComponent : AccessibleContext(), AccessibleComponent, AccessibleAction {
@@ -158,7 +176,7 @@ internal class ComposeAccessible(
             get() = semanticsConfig.getOrNull(SemanticsProperties.Selected)
 
         private val density: Density
-            get() = controller.desktopComponent.density
+            get() = ownerAccessibility.desktopComponent.density
 
         val horizontalScroll
             get() = semanticsConfig.getOrNull(SemanticsProperties.HorizontalScrollAxisRange)
@@ -178,10 +196,10 @@ internal class ComposeAccessible(
         val auxiliaryChildren
             get() = buildList {
                 horizontalScroll?.let {
-                    add(makeScrollbarChild(false))
+                    add(makeScrollbarChild(vertical = false))
                 }
                 verticalScroll?.let {
-                    add(makeScrollbarChild(true))
+                    add(makeScrollbarChild(vertical = true))
                 }
             }
 
@@ -213,12 +231,11 @@ internal class ComposeAccessible(
             return bar
         }
 
-        private fun Point.toComposeOffset() = with(density) {
-            Offset(x.dp.toPx(), y.dp.toPx())
-        }
+        private fun Point.toComposeOffset() =
+            asDpOffset().toOffset(density)
 
         private fun Dp.toAwtPx() =
-            if (value.isInfinite()) Constraints.Infinity else value.roundToInt()
+            if (value.isInfinite()) Constraints.Infinity else value.fastRoundToInt()
 
         private fun Rect.toAwtRectangle() = with(density) {
             Rectangle(
@@ -244,7 +261,8 @@ internal class ComposeAccessible(
         }
 
         override fun getAccessibleName(): String? {
-            return text?.toString()
+            return semanticsConfig.getOrNull(SemanticsProperties.ContentDescription)?.mergeText()
+                ?: semanticsConfig.getOrNull(SemanticsProperties.Text)?.mergeText()
         }
 
         override fun getAccessibleDescription(): String? {
@@ -254,86 +272,88 @@ internal class ComposeAccessible(
         }
 
         override fun getAccessibleParent(): Accessible? {
-            return semanticsNode.parent?.id?.let { id ->
-                controller.accessibleByNodeId(id)!!
-            } ?: accessibleParent
+            return ownerAccessibility.accessibleParentOf(this@ComposeAccessible)
+        }
+
+        override fun getAccessibleIndexInParent(): Int {
+            val parentNode = semanticsNode.parent ?: return ownerAccessibility.indexInScene()
+            val parentAccessible = ownerAccessibility.accessibleByNodeId(parentNode.id)
+            val traversalOrderedSiblings = parentAccessible?.traversalOrderedChildren
+                // Not sure if `parentAccessible` can ever be `null`, but just in case...
+                ?: parentNode.traversalOrderedChildren()
+            return traversalOrderedSiblings.fastIndexOfFirst { it.id == semanticsNode.id }
         }
 
         override fun getAccessibleComponent(): AccessibleComponent? {
             return this
         }
 
-        // we have to store a reference to AccessibleAction, because AWT itself uses weak
-        // references and GC could delete an object which is, in fact, in use
-        private var accessibleAction: AccessibleAction? = null
+        private var accessibleActions: List<Pair<String, ActionKey>>? = null
 
-        override fun getAccessibleAction(): AccessibleAction? {
-            val actions = mutableListOf<Pair<String?, ActionKey>>()
+        private fun updateAccessibleActions() {
+            val actions = mutableListOf<Pair<String, ActionKey>>()
 
-            fun addActionIfExist(key: SemanticsPropertyKey<AccessibilityAction<() -> Boolean>>) {
-                semanticsConfig.getOrNull(key)?.let {
-                    actions.add(Pair(it.label, key))
-                }
-            }
-            semanticsConfig.getOrNull(SemanticsActions.OnClick)?.let {
-                // AWT expects "click" label for click actions, at least on macOS...
-                actions.add(Pair("click", SemanticsActions.OnClick))
+            fun addActionIfExist(
+                key: SemanticsPropertyKey<AccessibilityAction<() -> Boolean>>,
+                label: String? = null,
+            ) {
+                val action = semanticsConfig.getOrNull(key) ?: return
+                val label = label ?: action.label ?: return  // No point to add an action without a label
+                actions.add(Pair(label, key))
             }
 
+            // AWT expects a "click" label for click actions, at least on macOS...
+            addActionIfExist(SemanticsActions.OnClick, AccessibleAction.CLICK)
             addActionIfExist(SemanticsActions.OnLongClick)
             addActionIfExist(SemanticsActions.Expand)
             addActionIfExist(SemanticsActions.Collapse)
             addActionIfExist(SemanticsActions.Dismiss)
 
-            if (actions.isEmpty()) {
-                return null
-            }
-            accessibleAction = object : AccessibleAction {
-                override fun getAccessibleActionCount(): Int = actions.size
+            accessibleActions = actions.takeIf { it.isNotEmpty() }
+        }
 
-                override fun getAccessibleActionDescription(i: Int): String? {
-                    val (label, _) = actions[i]
-                    return label
-                }
+        override fun getAccessibleAction(): AccessibleAction? {
+            updateAccessibleActions()
+            return if (accessibleActions == null) null else this
+        }
 
-                override fun doAccessibleAction(i: Int): Boolean {
-                    val (_, actionKey) = actions[i]
-                    return semanticsConfig.getOrNull(actionKey)?.let {
-                        it.action?.invoke()
-                    } ?: false
-                }
-            }
-            return accessibleAction
+        override fun getAccessibleActionCount(): Int = accessibleActions?.size ?: 0
+
+        override fun getAccessibleActionDescription(i: Int): String? {
+            val actions = accessibleActions!!
+            val (label, _) = actions[i]
+            return label
+        }
+
+        override fun doAccessibleAction(i: Int): Boolean {
+            val actions = accessibleActions!!
+            val (_, actionKey) = actions[i]
+            return semanticsConfig.getOrNull(actionKey)?.let {
+                it.action?.invoke()
+            } ?: false
         }
 
         override fun getAccessibleValue(): AccessibleValue? {
-            val role = semanticsConfig.getOrNull(SemanticsProperties.Role)
             // On macOS/VoiceOver, the a11y system appears to inspect the value we return here for
             // checkboxes and radio buttons. On Windows, it looks at getAccessibleStateSet instead.
             return when {
                 toggleableState != null -> ToggleableAccessibleValue(this)
-                role == Role.RadioButton -> RadioButtonAccessibleValue(this)
+                computeAccessibleRole() == AccessibleRole.RADIO_BUTTON -> RadioButtonAccessibleValue(this)
                 progressBarRangeInfo != null -> ProgressBarAccessibleValue(this)
                 else -> null
             }
         }
 
-        override fun getAccessibleIndexInParent(): Int {
-            val parentChildren = semanticsNode.parent?.replacedChildren
-            return parentChildren?.indexOfFirst { it.id == semanticsNode.id } ?: -1
-        }
-
         override fun getAccessibleChildrenCount(): Int {
-            return semanticsNode.replacedChildren.size + auxiliaryChildren.size
+            return traversalOrderedChildren.size + auxiliaryChildren.size
         }
 
-        override fun getAccessibleChild(i: Int): Accessible? {
-            val replacedChildren = semanticsNode.replacedChildren
-            val replacedChildrenSize = replacedChildren.size
-            return if (i < replacedChildrenSize) {
-                controller.accessibleByNodeId(replacedChildren[i].id)
+        override fun getAccessibleChild(index: Int): Accessible? {
+            val regularChildren = traversalOrderedChildren
+            return if (index < regularChildren.size) {
+                ownerAccessibility.accessibleByNodeId(regularChildren[index].id)
             } else {
-                auxiliaryChildren[i - replacedChildrenSize]
+                auxiliaryChildren[index - regularChildren.size]
             }
         }
 
@@ -369,12 +389,23 @@ internal class ComposeAccessible(
         }
 
         override fun getAccessibleAt(p: Point): Accessible? {
-            for (i in 0 until accessibleChildrenCount) {
-                val child = (getAccessibleChild(i)?.accessibleContext as? AccessibleComponent)
-                child?.getAccessibleAt(p)?.let {
+            val accessibleChildren = traversalOrderedChildren
+            accessibleChildren.fastForEach { child ->
+                val accessible = ownerAccessibility.accessibleByNodeId(child.id) as? Accessible ?: return@fastForEach
+                val accessibleComponent = (accessible.accessibleContext as? AccessibleComponent) ?: return@fastForEach
+                accessibleComponent.getAccessibleAt(p)?.let {
                     return it
                 }
             }
+
+            auxiliaryChildren.fastForEach { accessibleChild ->
+                val accessibleComponent =
+                    accessibleChild.accessibleContext as? AccessibleComponent ?: return@fastForEach
+                accessibleComponent.getAccessibleAt(p)?.let {
+                    return it
+                }
+            }
+
             if (contains(p)) {
                 return this@ComposeAccessible
             }
@@ -405,9 +436,16 @@ internal class ComposeAccessible(
 
         // -----------------------------------
 
-        override fun getAccessibleRole(): AccessibleRole {
-            AccessibilityController.AccessibilityUsage.notifyInUse()
-            val fromSemanticRole = when (semanticsConfig.getOrNull(SemanticsProperties.Role)) {
+        private fun computeAccessibleRole(): AccessibleRole {
+            // AWT role takes precedence
+            semanticsConfig.getOrNull(DesktopSemanticsProperties.AwtRole)?.let {
+                return it
+            }
+
+            // Check semantics role
+            val role = semanticsConfig.getOrNull(SemanticsProperties.Role)
+            val accessibleRole = when (role) {
+                null -> null  // Quickly return null
                 Role.Button -> AccessibleRole.PUSH_BUTTON
                 Role.Checkbox, Role.Switch -> AccessibleRole.CHECK_BOX
                 Role.RadioButton -> AccessibleRole.RADIO_BUTTON
@@ -415,12 +453,13 @@ internal class ComposeAccessible(
                 Role.DropdownList -> AccessibleRole.COMBO_BOX
                 else -> null
             }
+            if (accessibleRole != null) return accessibleRole
 
+            // Guess role from other semantics properties
             return when {
-                fromSemanticRole != null -> fromSemanticRole
                 isPassword -> AccessibleRole.PASSWORD_TEXT
-                scrollBy != null -> AccessibleRole.SCROLL_PANE
                 setText != null -> AccessibleRole.TEXT
+                scrollBy != null -> AccessibleRole.SCROLL_PANE
                 text != null -> AccessibleRole.LABEL
                 progressBarRangeInfo != null -> {
                     if (semanticsConfig.getOrNull(SemanticsActions.SetProgress) != null)
@@ -434,6 +473,11 @@ internal class ComposeAccessible(
             }
         }
 
+        override fun getAccessibleRole(): AccessibleRole {
+            SemanticsOwnerAccessibility.AccessibilityUsage.notifyInUse()
+            return computeAccessibleRole()
+        }
+
         override fun getAccessibleStateSet(): AccessibleStateSet {
             return AccessibleStateSet().apply {
                 // can we support these
@@ -442,6 +486,8 @@ internal class ComposeAccessible(
 
                 if (isEnabled)
                     add(AccessibleState.ENABLED)
+                if (semanticsConfig.getOrNull(SemanticsProperties.IsEditable) == true)
+                    add(AccessibleState.EDITABLE)
                 if (isShowing)
                     add(AccessibleState.SHOWING)
                 if (isVisible)
@@ -463,12 +509,12 @@ internal class ComposeAccessible(
                 if (canCollapse)
                     add(AccessibleState.EXPANDED)
 
-                when (semanticsConfig.getOrNull(SemanticsProperties.Role)) {
+                when (computeAccessibleRole()) {
                     // Note that this is not executed on macOS (for checkboxes or radio buttons),
                     // where the system inspects the value returned by getAccessibleValue instead.
-                    Role.Checkbox, Role.Switch -> addCheckedStateForCheckboxOrSwitch()
-                    Role.RadioButton -> addCheckedStateForRadioButton()
-                    else -> {  // Default case, for other (possibly null) roles
+                    AccessibleRole.CHECK_BOX -> addCheckedStateForCheckboxOrSwitch()
+                    AccessibleRole.RADIO_BUTTON -> addCheckedStateForRadioButton()
+                    else -> {  // Default case for other roles
                         addDefaultStateForToggleableState()
 
                         if (selected != null)
@@ -514,6 +560,11 @@ internal class ComposeAccessible(
             }
             if (state != null)
                 add(state)
+        }
+
+        override fun toString(): String {
+            val description = (accessibleDescription ?: text)?.let { "\"$it\"" } ?: "unknown"
+            return "ComposeAccessibleComponent(role='$accessibleRole', $description)"
         }
 
         open inner class ComposeAccessibleText : AccessibleText,
@@ -588,18 +639,19 @@ internal class ComposeAccessible(
             }
 
             override fun getSelectionStart(): Int {
-                return textSelectionRange?.start ?: 0
+                return textSelectionRange?.min ?: 0
             }
 
             override fun getSelectionEnd(): Int {
-                return textSelectionRange?.end ?: 0
+                return textSelectionRange?.max ?: 0
             }
 
-            override fun getSelectedText(): String {
-                return textSelectionRange?.let { selection ->
-                    // could be end less than start here?
-                    text!!.subSequence(selection.start, selection.end).toString()
-                } ?: ""
+            override fun getSelectedText(): String? {
+                val selection = textSelectionRange ?: return null
+                val start = selection.min
+                val end = selection.max
+                return if (start == end) null
+                else text!!.subSequence(start, end).toString()
             }
 
             override fun getTextRange(startIndex: Int, endIndex: Int): String {
@@ -688,16 +740,11 @@ internal class ComposeAccessible(
         }
 
         private val accessibleText by lazy {
+            // Technically it's wrong to cache this because `setText` or `text` may change
             when {
-                setText != null -> {
-                    ComposeAccessibleEditableText()
-                }
-                text != null -> {
-                    ComposeAccessibleText()
-                }
-                else -> {
-                    null
-                }
+                setText != null -> ComposeAccessibleEditableText()
+                text != null -> ComposeAccessibleText()
+                else -> null
             }
         }
 
@@ -768,11 +815,7 @@ internal class ComposeAccessible(
 
         override fun getAccessibleEditableText(): AccessibleEditableText? {
             val accessibleText = accessibleText
-            return if (accessibleText is AccessibleEditableText) {
-                accessibleText
-            } else {
-                null
-            }
+            return accessibleText as? AccessibleEditableText
         }
 
         // -----------------------------------
@@ -847,21 +890,7 @@ internal class ComposeAccessible(
             TODO("Not yet implemented")
         }
 
-        // For some reasons JDK's CAccessibility does not call getAccessibleAction
-        // and performs actions on current component itself
-        override fun getAccessibleActionCount(): Int {
-            return accessibleAction?.accessibleActionCount ?: 0
-        }
-
-        override fun getAccessibleActionDescription(i: Int): String {
-            return accessibleAction?.getAccessibleActionDescription(i) ?: ""
-        }
-
-        override fun doAccessibleAction(i: Int): Boolean {
-            return accessibleAction?.doAccessibleAction(i) ?: false
-        }
-
-        private fun List<CharSequence>.mergeText() = joinToString(", ")
+        private fun List<CharSequence>.mergeText() = fastJoinToString(", ")
     }
 }
 
@@ -932,5 +961,26 @@ private class ProgressBarAccessibleValue(
 
     override fun getMaximumAccessibleValue(): Number {
         return rangeInfo?.range?.endInclusive ?: 1f
+    }
+}
+
+private fun SemanticsNode.traversalOrderedChildren(
+    cachedConfig: SemanticsConfiguration? = null
+): List<SemanticsNode> {
+    val config = cachedConfig ?: config
+    val children = replacedChildren
+    if (config.getOrNull(SemanticsProperties.IsTraversalGroup) != true) return children
+
+    // Note that the `SemanticsProperties.TraversalIndex` is not merged anyway, so it's ok to get it
+    // from `unmergedConfig`.
+    // `config` is currently very slow (b/184376083) and wrong (b/384549982)?
+
+    val allIndicesAreNull = children.all {
+        it.unmergedConfig.getOrNull(SemanticsProperties.TraversalIndex) == null
+    }
+    if (allIndicesAreNull) return children  // Common case
+
+    return children.sortedBy {
+        it.unmergedConfig.getOrNull(SemanticsProperties.TraversalIndex) ?: 0f
     }
 }

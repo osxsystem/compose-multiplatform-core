@@ -15,6 +15,7 @@
  */
 package androidx.compose.remote.core.operations.layout.modifiers;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.PaintContext;
@@ -31,6 +32,7 @@ import org.jspecify.annotations.NonNull;
 import java.util.List;
 
 /** Support modifier clip with a rectangle */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class ClipRectModifierOperation extends DecoratorModifierOperation {
     public static final String CLASS_NAME = "ClipRectModifierOperation";
     private static final int OP_CODE = Operations.MODIFIER_CLIP_RECT;
@@ -106,8 +108,9 @@ public class ClipRectModifierOperation extends DecoratorModifierOperation {
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Canvas Operations", OP_CODE, CLASS_NAME)
-                .description("Draw the specified round-rect");
+        doc.operation("Modifier Operations", OP_CODE, CLASS_NAME)
+                .additionalDocumentation("modifier_clip_rect")
+                .description("Clip the component's content to its rectangular bounds");
     }
 
     @Override

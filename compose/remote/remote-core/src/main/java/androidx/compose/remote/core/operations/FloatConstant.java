@@ -17,12 +17,14 @@ package androidx.compose.remote.core.operations;
 
 import static androidx.compose.remote.core.documentation.DocumentedOperation.FLOAT;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteContext;
 import androidx.compose.remote.core.WireBuffer;
 import androidx.compose.remote.core.documentation.DocumentationBuilder;
 import androidx.compose.remote.core.documentation.DocumentedOperation;
+import androidx.compose.remote.core.operations.utilities.AnimatedFloatExpression;
 import androidx.compose.remote.core.serialize.MapSerializer;
 import androidx.compose.remote.core.serialize.Serializable;
 
@@ -31,6 +33,7 @@ import org.jspecify.annotations.NonNull;
 import java.util.List;
 
 /** Used to represent a float */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class FloatConstant extends Operation implements Serializable {
     private static final int OP_CODE = Operations.DATA_FLOAT;
     private static final String CLASS_NAME = "FloatConstant";
@@ -39,7 +42,8 @@ public class FloatConstant extends Operation implements Serializable {
 
     public FloatConstant(int id, float value) {
         this.mId = id;
-        this.mValue = value;
+        this.mValue = Utils.idFromNan(value) == Utils.idFromNan(AnimatedFloatExpression.RAND)
+                ? (float) Math.random() : value;
     }
 
     /**
@@ -85,8 +89,8 @@ public class FloatConstant extends Operation implements Serializable {
      * Writes out the operation to the buffer
      *
      * @param buffer write command to this buffer
-     * @param id the id
-     * @param value the value of the float
+     * @param id     the id
+     * @param value  the value of the float
      */
     public static void apply(@NonNull WireBuffer buffer, int id, float value) {
         buffer.start(OP_CODE);
@@ -97,7 +101,7 @@ public class FloatConstant extends Operation implements Serializable {
     /**
      * Read this operation and add it to the list of operations
      *
-     * @param buffer the buffer to read
+     * @param buffer     the buffer to read
      * @param operations the list of operations that will be added to
      */
     public static void read(@NonNull WireBuffer buffer, @NonNull List<Operation> operations) {
@@ -113,9 +117,9 @@ public class FloatConstant extends Operation implements Serializable {
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Expressions Operations", OP_CODE, CLASS_NAME)
+        doc.operation("Data Operations", OP_CODE, CLASS_NAME)
                 .description("A float and its associated id")
-                .field(DocumentedOperation.INT, "id", "id of float")
+                .field(DocumentedOperation.INT, "id", "id of the Float constant")
                 .field(FLOAT, "value", "32-bit float value");
     }
 

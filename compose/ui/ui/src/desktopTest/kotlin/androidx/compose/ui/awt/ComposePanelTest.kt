@@ -15,14 +15,20 @@
  */
 package androidx.compose.ui.awt
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -46,12 +52,14 @@ import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.sendCharTypedEvents
 import androidx.compose.ui.sendKeyEvent
 import androidx.compose.ui.sendMouseEvent
-import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.sendMousePress
+import androidx.compose.ui.sendMouseRelease
+import androidx.compose.ui.sendMouseWheelEvent
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.toSize
 import androidx.compose.ui.util.ThrowUncaughtExceptionRule
@@ -59,14 +67,18 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.density
 import androidx.compose.ui.window.runApplicationTest
+import androidx.compose.ui.window.waitForFocusGain
 import androidx.savedstate.SavedState
 import com.google.common.truth.Truth.assertThat
 import java.awt.BorderLayout
 import java.awt.Dimension
 import java.awt.GraphicsEnvironment
 import java.awt.event.MouseEvent
+import javax.swing.BoxLayout
 import javax.swing.JFrame
 import javax.swing.JPanel
+import javax.swing.JScrollPane
+import javax.swing.ScrollPaneConstants
 import junit.framework.TestCase.assertTrue
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -133,43 +145,6 @@ class ComposePanelTest {
                 frame.isVisible = true
                 assertThat(composePanel.preferredSize).isEqualTo(Dimension(300, 400))
                 assertThat(frame.preferredSize).isEqualTo(Dimension(300, 400))
-            } finally {
-                frame.dispose()
-            }
-        }
-    }
-
-    @Test
-    fun `a single layout pass at the window start`() {
-        assumeFalse(GraphicsEnvironment.getLocalGraphicsEnvironment().isHeadlessInstance)
-
-        val layoutPassConstraints = mutableListOf<Constraints>()
-
-        runBlocking(MainUIDispatcher) {
-            val composePanel = ComposePanel()
-            composePanel.setContent {
-                Box(Modifier.fillMaxSize().layout { _, constraints ->
-                    layoutPassConstraints.add(constraints)
-                    layout(0, 0) {}
-                })
-            }
-
-            val frame = JFrame()
-            try {
-                frame.contentPane.add(composePanel)
-                frame.size = Dimension(300, 400)
-                frame.isUndecorated = true
-                frame.isVisible = true
-                frame.paint(frame.graphics)
-
-                assertThat(layoutPassConstraints).isEqualTo(
-                    listOf(
-                        Constraints.fixed(
-                            width = (300 * frame.density.density).toInt(),
-                            height = (400 * frame.density.density).toInt()
-                        )
-                    )
-                )
             } finally {
                 frame.dispose()
             }
@@ -554,6 +529,9 @@ class ComposePanelTest {
             window.contentPane.add(composePanel)
             awaitIdle()
 
+            // Needed to complete the addition of SwingInteropContainer
+            composePanel.renderImmediately()
+
             assertEquals(2, jPanels.size)
             assertFalse(composePanel.isAncestorOf(jPanels[0]))
             assertTrue(composePanel.isAncestorOf(jPanels[1]))
@@ -696,7 +674,12 @@ class ComposePanelTest {
         val composePanel = ComposePanel()
         var isTextFieldFocused = false
         composePanel.setContent {
-            TextField(rememberTextFieldState(), Modifier.onFocusChanged { isTextFieldFocused = it.isFocused })
+            TextField(
+                state = rememberTextFieldState(),
+                Modifier.onFocusChanged {
+                    isTextFieldFocused = it.isFocused
+                }
+            )
         }
 
         val window = JFrame()
@@ -704,6 +687,8 @@ class ComposePanelTest {
             window.size = Dimension(200, 200)
             window.contentPane.add(composePanel, BorderLayout.CENTER)
             window.isVisible = true
+            window.toFront()
+            window.waitForFocusGain()
 
             awaitIdle()
 
@@ -713,4 +698,244 @@ class ComposePanelTest {
         }
     }
 
+    @Test
+    fun `ComposePanel propagates unconsumed mouse wheel scroll events to parent`() =
+        runApplicationTest {
+            val composePanel = ComposePanel()
+            composePanel.preferredSize = Dimension(200, 200)
+            composePanel.redispatchUnconsumedMouseWheelEvents = true
+            val scrollState = ScrollState(0)
+            composePanel.setContent {
+                Box(Modifier.size(200.dp).verticalScroll(scrollState).background(Color.Yellow)) {
+                    Column(Modifier.fillMaxWidth().height(400.dp)) {
+                        Text("Hello World")
+                        Text("Hello World")
+                        Text("Hello World")
+                        Text("Hello World")
+                        Text("Hello World")
+                    }
+                }
+            }
+
+            val window = JFrame()
+            try {
+                window.size = Dimension(200, 200)
+                val scrollPane = JScrollPane(
+                    JPanel().apply {
+                        layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                        add(composePanel)
+                        add(javax.swing.Box.createVerticalStrut(1000), BorderLayout.CENTER)
+                    }
+                )
+                scrollPane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+                window.contentPane.add(scrollPane, BorderLayout.CENTER)
+                window.isVisible = true
+
+                awaitIdle()
+
+                // Scroll a little and check that compose content was scrolled
+                window.sendMouseWheelEvent(wheelRotation = 1.0)
+                awaitIdle()
+                assertThat(scrollState.value).isGreaterThan(0)
+                assertThat(scrollPane.viewport.viewPosition.y).isEqualTo(0)
+
+                // Scroll a lot and check that the Swing JScrollPane was scrolled
+                // Note that we need two scroll events for now because Compose can't partially consume
+                // scroll events. So one event is needed to scroll Compose content to the end, and
+                // another one to scroll JScrollPane.
+                window.sendMouseWheelEvent(wheelRotation = 1000.0)
+                awaitIdle()
+                window.sendMouseWheelEvent(wheelRotation = 1000.0)
+                println("New scroll position: ${scrollPane.viewport.viewPosition.y}")
+                assertThat(scrollPane.viewport.viewPosition.y).isGreaterThan(0)
+
+                // Scroll back to the top to reset the state
+                window.sendMouseWheelEvent(wheelRotation = -1000.0)
+                awaitIdle()
+                window.sendMouseWheelEvent(wheelRotation = -1000.0)
+                awaitIdle()
+                assertThat(scrollState.value).isEqualTo(0)
+                assertThat(scrollPane.viewport.viewPosition.y).isEqualTo(0)
+
+                // Now set redispatchUnconsumedMouseWheelEvents = false and check that the scroll
+                // event is *not* propagated.
+                composePanel.redispatchUnconsumedMouseWheelEvents = false
+                window.sendMouseWheelEvent(wheelRotation = 1000.0)
+                awaitIdle()
+                window.sendMouseWheelEvent(wheelRotation = 1000.0)
+                assertThat(scrollPane.viewport.viewPosition.y).isEqualTo(0)
+            } finally {
+                window.dispose()
+            }
+        }
+
+    @Test
+    fun `ComposePanel propagates unconsumed mouse wheel scroll events to sibling`() =
+        runApplicationTest {
+            val composePanel = ComposePanel()
+            composePanel.redispatchUnconsumedMouseWheelEvents = true
+            val scrollState = ScrollState(0)
+            composePanel.setContent {
+                Box(Modifier.size(200.dp, 300.dp).verticalScroll(scrollState).background(Color.Green)) {
+                    Column(Modifier.fillMaxWidth().height(400.dp)) {
+                        Text("Hello World")
+                        Text("Hello World")
+                        Text("Hello World")
+                        Text("Hello World")
+                        Text("Hello World")
+                    }
+                }
+            }
+
+            val container = JPanel(null)
+            container.size = Dimension(200, 200)
+
+            val scrollPane = JScrollPane(
+                JPanel().apply {
+                    layout = BoxLayout(this, BoxLayout.Y_AXIS)
+                    add(javax.swing.Box.createVerticalStrut(1000), BorderLayout.CENTER)
+                }
+            )
+            scrollPane.horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+
+            composePanel.size = Dimension(200, 300)
+            scrollPane.size = Dimension(200, 400)
+
+            val window = JFrame()
+            try {
+                window.size = Dimension(200, 400)
+                container.add(composePanel)
+                container.add(scrollPane)
+
+                window.contentPane.add(container, BorderLayout.CENTER)
+                window.isVisible = true
+
+                awaitIdle()
+
+                // Scroll a little and check that compose content was scrolled
+                window.sendMouseWheelEvent(wheelRotation = 1.0)
+                awaitIdle()
+                assertThat(scrollState.value).isGreaterThan(0)
+
+                // Scroll a lot and check that the Swing JScrollPane was scrolled
+                // Note that we need two scroll events for now because Compose can't partially consume
+                // scroll events. So one event is needed to scroll Compose content to the end, and
+                // another one to scroll JScrollPane.
+                window.sendMouseWheelEvent(wheelRotation = 1000.0)
+                awaitIdle()
+                window.sendMouseWheelEvent(wheelRotation = 1000.0)
+                assertThat(scrollPane.viewport.viewPosition.y).isGreaterThan(0)
+
+                // Scroll back to the top to reset the state
+                window.sendMouseWheelEvent(wheelRotation = -1000.0)
+                awaitIdle()
+                window.sendMouseWheelEvent(wheelRotation = -1000.0)
+                awaitIdle()
+                assertThat(scrollState.value).isEqualTo(0)
+                assertThat(scrollPane.viewport.viewPosition.y).isEqualTo(0)
+
+                // Now set redispatchUnconsumedMouseWheelEvents = false and check that the scroll
+                // event is *not* propagated.
+                composePanel.redispatchUnconsumedMouseWheelEvents = false
+                window.sendMouseWheelEvent(wheelRotation = 1000.0)
+                awaitIdle()
+                window.sendMouseWheelEvent(wheelRotation = 1000.0)
+                assertThat(scrollPane.viewport.viewPosition.y).isEqualTo(0)
+            } finally {
+                window.dispose()
+            }
+        }
+
+    @Test
+    fun testComposePanelClearFocusOnMouseDownEnabled() =
+        testComposePanelClearFocusOnMouseDownEnabledFlag(true)
+
+    @Test
+    fun testComposePanelClearFocusOnMouseDownDisabled() =
+        testComposePanelClearFocusOnMouseDownEnabledFlag(false)
+
+    fun testComposePanelClearFocusOnMouseDownEnabledFlag(enabled: Boolean) = runApplicationTest {
+        val focusRequester = FocusRequester()
+        var textFieldIsFocused = false
+
+        val window = JFrame()
+        try {
+            window.contentPane.add(ComposePanel().apply {
+                isClearFocusOnMouseDownEnabled = enabled
+                setContent {
+                    Column(Modifier.size(300.dp, 400.dp)) {
+                        BasicTextField(
+                            state = rememberTextFieldState(),
+                            modifier = Modifier
+                                .testTag("textField")
+                                .fillMaxWidth()
+                                .height(100.dp)
+                                .focusRequester(focusRequester)
+                                .onFocusChanged {
+                                    textFieldIsFocused = it.isFocused
+                                }
+                        )
+                        LaunchedEffect(Unit) {
+                            focusRequester.requestFocus()
+                        }
+                        Box(Modifier.testTag("box").fillMaxWidth().weight(1f))
+                    }
+                }
+            })
+            window.size = Dimension(300, 400)
+            window.isVisible = true
+
+            awaitIdle()
+
+            assertThat(textFieldIsFocused).isTrue()
+            window.sendMousePress(x = 100, y = 300)
+            window.sendMouseRelease(x = 100, y = 300)
+            awaitIdle()
+
+            assertThat(textFieldIsFocused).isEqualTo(!enabled)
+        } finally {
+            window.dispose()
+        }
+    }
+
+    @Test
+    fun `ComposePanel draws background correctly`() = runApplicationTest {
+        // Show a canvas and a `ComposePanel` with the same background and compare the two colors.
+        // Simply comparing to the set color doesn't work because Robot returns the color after
+        // the OS transforms it to the screen color space (which doesn't seem to be accessible from
+        // the JVM).
+
+        val bgColor = java.awt.Color.RED
+
+        val canvas = java.awt.Canvas().apply {
+            size = Dimension(300, 300)
+            background = bgColor
+        }
+
+        val composePanel = ComposePanel().apply {
+            size = Dimension(300, 300)
+            background = bgColor
+        }
+        composePanel.setContent { }
+
+
+        val frame = JFrame().apply {
+            contentPane.layout = BoxLayout(contentPane, BoxLayout.Y_AXIS)
+            contentPane.add(canvas)
+            contentPane.add(composePanel)
+            size = Dimension(300, 600)
+        }
+
+        try {
+            frame.isVisible = true
+            awaitIdle()
+            val robot = java.awt.Robot()
+            val frameBounds = frame.bounds
+            val canvasPixel = robot.getPixelColor(frameBounds.centerX.toInt(), (0.25 * frameBounds.centerY).toInt())
+            val composePixel = robot.getPixelColor(frameBounds.centerX.toInt(), (0.75 * frameBounds.centerY).toInt())
+            assertThat(composePixel).isEqualTo(canvasPixel)
+        } finally {
+            frame.dispose()
+        }
+    }
 }

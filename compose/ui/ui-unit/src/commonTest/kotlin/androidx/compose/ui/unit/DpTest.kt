@@ -25,7 +25,7 @@ import kotlin.test.fail
 class DpTest {
 
     @Test
-    fun constructor() {
+    fun checkConstructor() {
         val dim1 = Dp(value = 5f)
         assertEquals(5f, dim1.value, 0f)
 
@@ -210,7 +210,6 @@ class DpTest {
 
     @Test
     fun compareDp() {
-        @OptIn(ExperimentalUnitApi::class) if (!ComposeUiUnitFlags.isDpCompareToChanged) return
         assertTrue(1.dp == 1.dp)
         assertFalse(1.dp != 1.dp)
 

@@ -49,6 +49,7 @@ import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.test.IgnoreJsTarget
 
 @OptIn(ExperimentalTestApi::class)
 class LazyGridSlotsReuseTest {

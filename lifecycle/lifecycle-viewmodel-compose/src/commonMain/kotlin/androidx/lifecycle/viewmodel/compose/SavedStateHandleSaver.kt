@@ -24,7 +24,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.SaverScope
 import androidx.compose.runtime.saveable.autoSaver
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotMutableState
 import androidx.lifecycle.SavedStateHandle
@@ -40,7 +39,8 @@ import kotlin.reflect.KProperty
 
 /**
  * Inter-opt between [SavedStateHandle] and [Saver] so that any state holder that is being saved via
- * [rememberSaveable] with a custom [Saver] can also be saved with [SavedStateHandle].
+ * [androidx.compose.runtime.saveable.rememberSaveable] with a custom [Saver] can also be saved with
+ * [SavedStateHandle].
  *
  * The returned state [T] should be the only way that a value is saved or restored from the
  * [SavedStateHandle] with the given [key].
@@ -59,10 +59,7 @@ public fun <T : Any> SavedStateHandle.saveable(
     @Suppress("UNCHECKED_CAST")
     saver as Saver<T, Any>
     // value is restored using the SavedStateHandle or created via [init] lambda
-    @Suppress("DEPRECATION") // Bundle.get has been deprecated in API 31
-    val value = get<SavedState?>(key)?.read {
-        if (contains("value")) getSavedState("value") else null
-    }?.let(saver::restore) ?: init()
+    val value = get<SavedState?>(key)?.read { toMap()["value"] }?.let(saver::restore) ?: init()
 
     // Hook up saving the state to the SavedStateHandle
     setSavedStateProvider(key) {
@@ -73,7 +70,8 @@ public fun <T : Any> SavedStateHandle.saveable(
 
 /**
  * Inter-opt between [SavedStateHandle] and [Saver] so that any state holder that is being saved via
- * [rememberSaveable] with a custom [Saver] can also be saved with [SavedStateHandle].
+ * [androidx.compose.runtime.saveable.rememberSaveable] with a custom [Saver] can also be saved with
+ * [SavedStateHandle].
  *
  * The returned [MutableState] should be the only way that a value is saved or restored from the
  * [SavedStateHandle] with the given [key].
@@ -95,7 +93,8 @@ public fun <T> SavedStateHandle.saveable(
 
 /**
  * Inter-opt between [SavedStateHandle] and [Saver] so that any state holder that is being saved via
- * [rememberSaveable] with a custom [Saver] can also be saved with [SavedStateHandle].
+ * [androidx.compose.runtime.saveable.rememberSaveable] with a custom [Saver] can also be saved with
+ * [SavedStateHandle].
  *
  * The key is automatically retrieved as the name of the property this delegate is being used to
  * create.
@@ -114,18 +113,20 @@ public fun <T : Any> SavedStateHandle.saveable(
     init: () -> T,
 ): PropertyDelegateProvider<Any?, ReadOnlyProperty<Any?, T>> =
     PropertyDelegateProvider { thisRef, property ->
-        val value = saveable(
-            key = getSaveableKeyPrefix(thisRef) + property.name,
-            saver = saver,
-            init = init
-        )
+        val value =
+            saveable(
+                key = getSaveableKeyPrefix(thisRef) + property.name,
+                saver = saver,
+                init = init,
+            )
 
         ReadOnlyProperty { _, _ -> value }
     }
 
 /**
  * Inter-opt between [SavedStateHandle] and [Saver] so that any state holder that is being saved via
- * [rememberSaveable] with a custom [Saver] can also be saved with [SavedStateHandle].
+ * [androidx.compose.runtime.saveable.rememberSaveable] with a custom [Saver] can also be saved with
+ * [SavedStateHandle].
  *
  * The key is automatically retrieved as the name of the property this delegate is being used to
  * create.
@@ -151,11 +152,12 @@ public fun <T, M : MutableState<T>> SavedStateHandle.saveable(
     init: () -> M,
 ): PropertyDelegateProvider<Any?, ReadWriteProperty<Any?, T>> =
     PropertyDelegateProvider<Any?, ReadWriteProperty<Any?, T>> { thisRef, property ->
-        val mutableState = saveable(
-            key = getSaveableKeyPrefix(thisRef) + property.name,
-            stateSaver = stateSaver,
-            init = init
-        )
+        val mutableState =
+            saveable(
+                key = getSaveableKeyPrefix(thisRef) + property.name,
+                stateSaver = stateSaver,
+                init = init,
+            )
 
         // Create a property that delegates to the mutableState
         object : ReadWriteProperty<Any?, T> {
@@ -191,4 +193,5 @@ private fun <T> mutableStateSaver(inner: Saver<T, out Any>) =
         )
     }
 
-internal expect fun getSaveableKeyPrefix(thisRef: Any?): String
+private fun getSaveableKeyPrefix(thisRef: Any?): String =
+    if (thisRef != null) thisRef::class.canonicalName + "." else ""

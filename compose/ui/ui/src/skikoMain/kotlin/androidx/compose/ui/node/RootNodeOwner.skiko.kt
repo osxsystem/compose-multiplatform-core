@@ -18,11 +18,11 @@ package androidx.compose.ui.node
 
 import androidx.collection.MutableIntObjectMap
 import androidx.collection.mutableIntObjectMapOf
-import androidx.compose.runtime.ForgetfulRetainScope
-import androidx.compose.runtime.RetainScope
 import androidx.compose.runtime.collection.mutableVectorOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.retain.ForgetfulRetainedValuesStore
+import androidx.compose.runtime.retain.RetainedValuesStore
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
@@ -31,6 +31,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.SessionMutex
+import androidx.compose.ui.areWindowInsetsRulersEnabled
 import androidx.compose.ui.autofill.AutofillManager
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusOwner
@@ -68,14 +69,16 @@ import androidx.compose.ui.platform.DefaultAccessibilityManager
 import androidx.compose.ui.platform.DefaultHapticFeedback
 import androidx.compose.ui.platform.DelegatingSoftwareKeyboardController
 import androidx.compose.ui.platform.GraphicsLayerOwnerLayer
+import androidx.compose.ui.platform.LegacyRenderNodeLayer
 import androidx.compose.ui.platform.OwnedLayerManager
-import androidx.compose.ui.platform.PlatformClipboardManager
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.PlatformRootForTest
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.PlatformTextInputSessionScope
-import androidx.compose.ui.platform.LegacyRenderNodeLayer
+import androidx.compose.ui.platform.PlatformWindowInsets
+import androidx.compose.ui.platform.PlatformWindowInsetsProviderNode
 import androidx.compose.ui.platform.createPlatformClipboard
+import androidx.compose.ui.platform.createPlatformClipboardManager
 import androidx.compose.ui.platform.setLightingInfo
 import androidx.compose.ui.scene.ComposeScene
 import androidx.compose.ui.scene.ComposeSceneInputHandler
@@ -94,7 +97,6 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.round
-import androidx.compose.ui.unit.toIntRect
 import androidx.compose.ui.unit.toRect
 import androidx.compose.ui.useLegacyRenderNodeLayers
 import androidx.compose.ui.util.fastAll
@@ -143,8 +145,10 @@ internal class RootNodeOwner(
     val semanticsOwner get() = owner.semanticsOwner
     var size: IntSize? = size
         set(value) {
-            field = value
-            onRootConstrainsChanged(value?.toConstraints())
+            if (field != value) {
+                field = value
+                onRootConstrainsChanged(value?.toConstraints())
+            }
         }
     var density by mutableStateOf(density)
 
@@ -187,6 +191,7 @@ internal class RootNodeOwner(
         platformContext.rootForTestListener?.onRootForTestDisposed(rootForTest)
         snapshotObserver.stopObserving()
         graphicsContext.dispose()
+        _owner.dispose()
         // we don't need to call root.detach() because root will be garbage collected
         isDisposed = true
     }
@@ -216,7 +221,7 @@ internal class RootNodeOwner(
                 height = children.fastMaxOfOrDefault(0) { it.outerCoordinator.measuredHeight },
             )
         } finally {
-            measureAndLayoutDelegate.updateRootConstraintsWithInfinityCheck(constraints)
+            measureAndLayoutDelegate.updateRootConstraintsWithInfinityCheck(size?.toConstraints())
         }
     }
 
@@ -245,7 +250,7 @@ internal class RootNodeOwner(
         } else false
 
         if (hasPositionOnScreenChanged || hasPositionInWindowChanged) {
-            owner.root.layoutDelegate.measurePassDelegate.notifyChildrenUsingCoordinatesWhilePlacing()
+            owner.root.layoutDelegate.measurePassDelegate.requestLayoutIfCoordinatesAreUsedAndNotifyChildren()
         }
         val containerSize = platformContext.windowInfo.containerSize
         owner.rectManager.updateOffsets(
@@ -258,9 +263,7 @@ internal class RootNodeOwner(
         measureAndLayoutDelegate.dispatchOnPositionedCallbacks(
             forceDispatch = hasPositionOnScreenChanged || hasPositionInWindowChanged
         )
-        if (ComposeUiFlags.isRectTrackingEnabled) {
-            owner.rectManager.dispatchCallbacks()
-        }
+        owner.rectManager.dispatchCallbacks()
         if (hasPositionInWindowChanged || hasContainerSizeChanged) {
             graphicsContext.setLightingInfo(
                 canvasOffset = positionInWindow,
@@ -281,9 +284,7 @@ internal class RootNodeOwner(
     fun draw(canvas: Canvas) = trace("RootNodeOwner:draw") {
         ownedLayerManager.draw(canvas)
         clearInvalidObservations()
-        if (ComposeUiFlags.isRectTrackingEnabled) {
-            owner.rectManager.dispatchCallbacks()
-        }
+        owner.rectManager.dispatchCallbacks()
     }
 
     fun setRootModifier(modifier: Modifier) {
@@ -359,10 +360,10 @@ internal class RootNodeOwner(
     }
 
     private fun isInBounds(localPosition: Offset): Boolean =
-        size?.toIntRect()?.toRect()?.contains(localPosition) ?: true
+        size?.toRect()?.contains(localPosition) ?: true
 
     private fun calculateBoundsInWindow(): Rect? {
-        val rect = size?.toIntRect()?.toRect() ?: return null
+        val rect = size?.toRect() ?: return null
         val p0 = platformContext.convertLocalToWindowPosition(Offset(rect.left, rect.top))
         val p1 = platformContext.convertLocalToWindowPosition(Offset(rect.left, rect.bottom))
         val p3 = platformContext.convertLocalToWindowPosition(Offset(rect.right, rect.top))
@@ -400,11 +401,9 @@ internal class RootNodeOwner(
 
         override val focusOwner: FocusOwner = FocusOwnerImpl(platformFocusOwner, this)
 
-        val rootModifier = if (ComposeUiFlags.areWindowInsetsRulersEnabled) {
-                RulerProviderModifierElement(platformContext.windowInsets)
-            } else {
-                Modifier
-            }
+        val rootModifier = Modifier
+            .then(RootWindowInsetsProviderModifierElement(platformContext.windowInsets))
+            .rulerProvider(platformContext.windowInsets)
             .then(EmptySemanticsElement(rootSemanticsNode))
             .focusProperties {
                 onExit = {
@@ -434,7 +433,7 @@ internal class RootNodeOwner(
         override val rootForTest get() = this@RootNodeOwner.rootForTest
         override val hapticFeedBack = DefaultHapticFeedback()
         override val inputModeManager get() = platformContext.inputModeManager
-        override val clipboardManager = PlatformClipboardManager()
+        override val clipboardManager = createPlatformClipboardManager()
         override val clipboard = createPlatformClipboard()
         override val accessibilityManager = DefaultAccessibilityManager()
         override val graphicsContext get() = this@RootNodeOwner.graphicsContext
@@ -495,16 +494,15 @@ internal class RootNodeOwner(
         override val pointerIconService = PointerIconServiceImpl()
         override val semanticsOwner = SemanticsOwner(root, rootSemanticsNode, layoutNodes)
         override val windowInfo get() = platformContext.windowInfo
-        override val retainScope: RetainScope get() = ForgetfulRetainScope
-        // TODO: 1.8.0-alpha02 Implement ComposeUiFlags.isRectTrackingEnabled
-        //  https://youtrack.jetbrains.com/issue/CMP-6715/Support-ComposeUiFlags.isRectTrackingEnabled
+        override val retainedValuesStore: RetainedValuesStore get() = ForgetfulRetainedValuesStore
         override val rectManager = RectManager()
 
         @Suppress("OVERRIDE_DEPRECATION", "DEPRECATION")
         override val fontLoader = androidx.compose.ui.text.platform.FontLoader()
         override val fontFamilyResolver = createFontFamilyResolver()
         override val layoutDirection get() = _layoutDirection
-        override var showLayoutBounds = false
+        override val localeList get() = platformContext.localeList
+        override var showLayoutBounds by mutableStateOf(false)
             @InternalCoreApi
             set
 
@@ -533,10 +531,7 @@ internal class RootNodeOwner(
             measureAndLayoutDelegate.onNodeDetached(node)
             snapshotObserver.clear(node)
             needClearObservations = true
-            @OptIn(ExperimentalComposeUiApi::class)
-            if (ComposeUiFlags.isRectTrackingEnabled) {
-                rectManager.remove(node)
-            }
+            rectManager.remove(node)
         }
 
         override fun measureAndLayout(sendPointerUpdate: Boolean) {
@@ -551,9 +546,7 @@ internal class RootNodeOwner(
                         snapshotInvalidationTracker.requestDraw()
                     }
                     measureAndLayoutDelegate.dispatchOnPositionedCallbacks()
-                    if (ComposeUiFlags.isRectTrackingEnabled) {
-                       rectManager.dispatchCallbacks()
-                    }
+                    rectManager.dispatchCallbacks()
                 }
             }
         }
@@ -568,9 +561,7 @@ internal class RootNodeOwner(
                 if (!measureAndLayoutDelegate.hasPendingMeasureOrLayout) {
                     measureAndLayoutDelegate.dispatchOnPositionedCallbacks()
                 }
-                if (ComposeUiFlags.isRectTrackingEnabled) {
-                    rectManager.dispatchCallbacks()
-                }
+                rectManager.dispatchCallbacks()
             }
         }
 
@@ -640,10 +631,7 @@ internal class RootNodeOwner(
         }
 
         override fun onLayoutNodeDeactivated(layoutNode: LayoutNode) {
-            @OptIn(ExperimentalComposeUiApi::class)
-            if (ComposeUiFlags.isRectTrackingEnabled) {
-                rectManager.remove(layoutNode)
-            }
+            rectManager.remove(layoutNode)
         }
 
         override fun onPreLayoutNodeReused(layoutNode: LayoutNode, oldSemanticsId: Int) {
@@ -730,6 +718,18 @@ internal class RootNodeOwner(
             keepScreenOnCount--
             platformContext.isKeepScreenOnEnabled = keepScreenOnCount > 0
         }
+
+        override fun invalidateRootLayer() {
+            ownedLayerManager.invalidate()
+        }
+
+        fun dispose() {
+            // Unlike AndroidComposeView.onDetachedFromWindow, we only remove callbacks, without
+            // dispatching them because here we are already in the middle of disposing the
+            // `RootNodeOwner`, so dispatching callbacks can end up calling already-disposed
+            // objects.
+            rectManager.removeScheduledCallback()
+        }
     }
 
     private inner class PlatformRootForTestImpl : PlatformRootForTest {
@@ -739,7 +739,7 @@ internal class RootNodeOwner(
         override val semanticsOwner get() = owner.semanticsOwner
         override val visibleBounds: Rect
             get() {
-                val windowRect = platformContext.windowInfo.containerSize.toIntRect().toRect()
+                val windowRect = platformContext.windowInfo.containerSize.toRect()
                 val ownerRect = calculateBoundsInWindow()
                 return ownerRect?.intersect(windowRect) ?: windowRect
             }
@@ -763,7 +763,9 @@ internal class RootNodeOwner(
             buttons: PointerButtons?,
             keyboardModifiers: PointerKeyboardModifiers?,
             nativeEvent: Any?,
-            button: PointerButton?
+            button: PointerButton?,
+            scaleGestureFactor: Float,
+            panGestureOffset: Offset,
         ) {
             inputHandler.onPointerEvent(
                 eventType = eventType,
@@ -774,7 +776,9 @@ internal class RootNodeOwner(
                 buttons = buttons,
                 keyboardModifiers = keyboardModifiers,
                 nativeEvent = nativeEvent,
-                button = button
+                button = button,
+                scaleGestureFactor = scaleGestureFactor,
+                panGestureOffset = panGestureOffset,
             )
         }
 
@@ -790,6 +794,8 @@ internal class RootNodeOwner(
             timeMillis: Long,
             nativeEvent: Any?,
             button: PointerButton?,
+            scaleGestureFactor: Float,
+            panGestureOffset: Offset,
         ) {
             inputHandler.onPointerEvent(
                 eventType = eventType,
@@ -799,7 +805,9 @@ internal class RootNodeOwner(
                 scrollDelta = scrollDelta,
                 timeMillis = timeMillis,
                 nativeEvent = nativeEvent,
-                button = button
+                button = button,
+                scaleGestureFactor = scaleGestureFactor,
+                panGestureOffset = panGestureOffset,
             )
         }
 
@@ -903,8 +911,6 @@ internal class RootNodeOwner(
         private var currentFrameRateCategory = 0f
 
         override fun voteFrameRate(frameRate: Float) {
-            if (!ComposeUiFlags.isAdaptiveRefreshRateEnabled) return
-
             val isCurrentFrameRateUnset = currentFrameRate.isNaN()
             val isCurrentFrameRateCategoryUnset = currentFrameRateCategory == 0f
 
@@ -951,7 +957,7 @@ internal class RootNodeOwner(
             }
 
             val isAnyCurrentFrameRateSet = !currentFrameRate.isNaN() || currentFrameRateCategory != 0f
-            if (ComposeUiFlags.isAdaptiveRefreshRateEnabled && isAnyCurrentFrameRateSet) {
+            if (isAnyCurrentFrameRateSet) {
                 platformContext.voteFrameRate(currentFrameRate, currentFrameRateCategory)
                 currentFrameRate = Float.NaN
                 currentFrameRateCategory = 0f
@@ -1013,4 +1019,28 @@ private fun IntSize.toConstraints() = Constraints(maxWidth = width, maxHeight = 
 private object IdentityPositionCalculator: PositionCalculator {
     override fun screenToLocal(positionOnScreen: Offset): Offset = positionOnScreen
     override fun localToScreen(localPosition: Offset): Offset = localPosition
+}
+
+private fun Modifier.rulerProvider(windowInsets: PlatformWindowInsets) =
+    if (ComposeUiFlags.areWindowInsetsRulersEnabled) then(RulerProviderModifierElement(windowInsets)) else this
+
+private data class RootWindowInsetsProviderModifierElement(
+    val windowInsets: PlatformWindowInsets,
+): ModifierNodeElement<RootPlatformWindowInsetsProviderNode>() {
+    override fun create(): RootPlatformWindowInsetsProviderNode = RootPlatformWindowInsetsProviderNode(windowInsets)
+    override fun update(node: RootPlatformWindowInsetsProviderNode) = node.update(windowInsets)
+}
+
+private class RootPlatformWindowInsetsProviderNode(
+    private var insets: PlatformWindowInsets,
+): PlatformWindowInsetsProviderNode(insets) {
+    override fun calculatePlatformInsets(ancestorWindowInsets: PlatformWindowInsets): PlatformWindowInsets =
+        insets
+
+    fun update(windowInsets: PlatformWindowInsets) {
+        if (insets != windowInsets) {
+            insets = windowInsets
+            windowInsetsInvalidated()
+        }
+    }
 }

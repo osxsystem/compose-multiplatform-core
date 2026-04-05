@@ -18,6 +18,7 @@ package androidx.compose.ui.platform
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ComposeUiFlags
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.FrameRateCategory
 import androidx.compose.ui.InternalComposeUiApi
@@ -28,6 +29,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.InputModeManager
 import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.isClearFocusOnMouseDownEnabled
 import androidx.compose.ui.node.LayoutNode
 import androidx.compose.ui.node.OwnedLayer
 import androidx.compose.ui.node.Owner
@@ -39,8 +41,12 @@ import androidx.compose.ui.semantics.SemanticsOwner
 import androidx.compose.ui.text.input.EditCommand
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.ImeOptions
-import androidx.compose.ui.text.input.PlatformTextInputService
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.intl.LocaleList
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ViewModelStoreOwner
+import androidx.lifecycle.enableSavedStateHandles
 import kotlin.reflect.KProperty
 import kotlinx.coroutines.awaitCancellation
 
@@ -57,10 +63,15 @@ interface PlatformContext {
     /**
      * The value that will be provided to [LocalPlatformScreenReader] by default.
      */
-    val screenReader: PlatformScreenReader
+    val screenReader: PlatformScreenReader get() = EmptyPlatformScreenReader
 
     /**
-     * Indicates if the compose view is positioned in a transparent window.
+     * Provider of platform owners such as [LifecycleOwner] or [ViewModelStoreOwner].
+     */
+    val architectureComponentsOwner: PlatformArchitectureComponentsOwner get() = EmptyArchitectureComponentsOwner
+
+    /**
+     * Indicates if the Compose view is positioned in a transparent window.
      * This is used when rendering the scrim of a dialog - if set to true, a special blending mode
      * will be used to take into account the existing alpha-channel values.
      *
@@ -119,14 +130,16 @@ interface PlatformContext {
     /**
      * Determines if [OwnedLayer] should measure bounds for all drawings.
      * It's required to determine bounds of any graphics even if it was drawn out of measured
-     * layout bounds (for example shadows). It might be used to resize platform views based on
+     * layout bounds (for example, shadows). It might be used to resize platform views based on
      * such bounds.
      */
     val measureDrawLayerBounds: Boolean get() = false
 
-    val viewConfiguration: ViewConfiguration get() = EmptyViewConfiguration
+    val localeList: LocaleList get() = LocaleList.current
+    val viewConfiguration: ViewConfiguration get() = DefaultViewConfiguration
     val inputModeManager: InputModeManager
-    val textInputService: PlatformTextInputService get() = EmptyPlatformTextInputService
+    @Suppress("DEPRECATION") // TODO https://youtrack.jetbrains.com/issue/CMP-9858
+    val textInputService: androidx.compose.ui.text.input.PlatformTextInputService get() = EmptyPlatformTextInputService
 
     suspend fun startInputMethod(request: PlatformTextInputMethodRequest): Nothing {
         awaitCancellation()
@@ -143,11 +156,11 @@ interface PlatformContext {
     /**
      * The value that will be provided to [LocalPlatformWindowInsets] by default.
      */
-    val windowInsets: PlatformWindowInsets get() = DefaultPlatformWindowInsets
+    val windowInsets: PlatformWindowInsets get() = EmptyPlatformWindowInsets
 
     var isKeepScreenOnEnabled: Boolean
         get() = false
-        set(value) {}
+        set(_) {}
 
     /**
      * Votes for a specific frame rate to be used for rendering.
@@ -170,6 +183,12 @@ interface PlatformContext {
      * @see SemanticsOwnerListener
      */
     val semanticsOwnerListener: SemanticsOwnerListener? get() = null
+
+    /**
+     * Returns whether mouse-down on an unfocusable element clears focus.
+     */
+    val isClearFocusOnMouseDownEnabled: Boolean
+        get() = ComposeUiFlags.isClearFocusOnMouseDownEnabled
 
     interface RootForTestListener {
         fun onRootForTestCreated(root: PlatformRootForTest)
@@ -209,21 +228,46 @@ interface PlatformContext {
         fun onLayoutChange(semanticsOwner: SemanticsOwner, semanticsNodeId: Int)
     }
 
-    companion object {
-        val Empty = object : PlatformContext {
-            override val windowInfo: WindowInfo = WindowInfoImpl().apply {
-                // true is a better default if platform doesn't provide WindowInfo.
-                // otherwise UI will be rendered always in unfocused mode
-                // (hidden textfield cursor, gray titlebar, etc)
-                isWindowFocused = true
-            }
-            override val inputModeManager: InputModeManager = DefaultInputModeManager()
-
-            override val screenReader: PlatformScreenReader = object : PlatformScreenReader {
-                override val isActive: Boolean = false
-            }
+    @InternalComposeUiApi
+    open class Empty : PlatformContext {
+        override val windowInfo: WindowInfo = WindowInfoImpl().apply {
+            // true is a better default if the platform doesn't provide WindowInfo.
+            // otherwise UI will always be rendered in unfocused mode
+            // (hidden text field cursor, gray title bar, etc.)
+            isWindowFocused = true
         }
+
+        override val inputModeManager: InputModeManager = DefaultInputModeManager()
     }
+
+    // This object must be immutable because it is used as a delegate in other ViewConfiguration
+    // implementations
+    @InternalComposeUiApi
+    object DefaultViewConfiguration : ViewConfiguration {
+        override val longPressTimeoutMillis: Long = 500
+        override val doubleTapTimeoutMillis: Long = 300
+        override val doubleTapMinTimeMillis: Long = 40
+        override val touchSlop: Float = 18f
+    }
+
+    // This object must be immutable because it is used directly in several PlatformContext
+    // implementations
+    @InternalComposeUiApi
+    object EmptyFocusManager : FocusManager {
+        override fun clearFocus(force: Boolean) = Unit
+        override fun moveFocus(focusDirection: FocusDirection) = false
+    }
+}
+
+private object EmptyPlatformScreenReader : PlatformScreenReader {
+    override val isActive: Boolean = false
+}
+
+private val EmptyArchitectureComponentsOwner = DefaultArchitectureComponentsOwner(
+    enforceMainThread = false
+).apply {
+    enableSavedStateHandles()
+    setLifecycleState(Lifecycle.State.RESUMED)
 }
 
 internal class DefaultInputModeManager(
@@ -241,14 +285,8 @@ internal class DefaultInputModeManager(
         }
 }
 
-internal object EmptyViewConfiguration : ViewConfiguration {
-    override val longPressTimeoutMillis: Long = 500
-    override val doubleTapTimeoutMillis: Long = 300
-    override val doubleTapMinTimeMillis: Long = 40
-    override val touchSlop: Float = 18f
-}
-
-private object EmptyPlatformTextInputService : PlatformTextInputService {
+@Suppress("DEPRECATION") // TODO https://youtrack.jetbrains.com/issue/CMP-9858
+private object EmptyPlatformTextInputService : androidx.compose.ui.text.input.PlatformTextInputService {
     override fun startInput(
         value: TextFieldValue,
         imeOptions: ImeOptions,
@@ -274,13 +312,7 @@ private object EmptyTextToolbar : TextToolbar {
     ) = Unit
 }
 
-private object EmptyFocusManager : FocusManager {
-    override fun clearFocus(force: Boolean) = Unit
-    override fun moveFocus(focusDirection: FocusDirection) = false
-}
-
 private object EmptyDragAndDropManager : PlatformDragAndDropManager
-private object DefaultPlatformWindowInsets : PlatformWindowInsets
 
 /**
  * Helper delegate to re-send missing events to a new listener.
@@ -300,11 +332,18 @@ internal class DelegateRootForTestListener : PlatformContext.RootForTestListener
     }
 
     @Suppress("RedundantNullableReturnType")
-    operator fun getValue(thisRef: Any?, property: KProperty<*>): PlatformContext.RootForTestListener? {
+    operator fun getValue(
+        thisRef: Any?,
+        property: KProperty<*>
+    ): PlatformContext.RootForTestListener? {
         return this
     }
 
-    operator fun setValue(thisRef: Any?, property: KProperty<*>, value: PlatformContext.RootForTestListener?) {
+    operator fun setValue(
+        thisRef: Any?,
+        property: KProperty<*>,
+        value: PlatformContext.RootForTestListener?
+    ) {
         listener = value
         sendMissingEvents()
     }

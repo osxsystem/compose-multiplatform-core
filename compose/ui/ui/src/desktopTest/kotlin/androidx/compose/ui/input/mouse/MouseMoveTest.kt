@@ -14,14 +14,16 @@
  * limitations under the License.
  */
 
-@file:Suppress("DEPRECATION") // https://github.com/JetBrains/compose-jb/issues/1514
+@file:Suppress("DEPRECATION") // https://youtrack.jetbrains.com/issue/CMP-6181
 
 package androidx.compose.ui.input.mouse
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -34,16 +36,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEvent
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.onPointerEvent
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.scene.ComposeScene
+import androidx.compose.ui.scene.LocalComposeScene
+import androidx.compose.ui.scene.lastKnownPointerPosition
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.runSkikoComposeUiTest
 import androidx.compose.ui.unit.Constraints
@@ -59,6 +67,9 @@ import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
 import java.util.concurrent.Executors
 import kotlin.random.Random
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
@@ -438,7 +449,7 @@ class MouseMoveTest {
         collector2.assertCounts(enter = 1, exit = 1, move = 0)
     }
 
-    // bug https://github.com/JetBrains/compose-jb/issues/2147
+    // bug https://youtrack.jetbrains.com/issue/CMP-2147
     @OptIn(ExperimentalComposeUiApi::class)
     @Test
     fun `move between two components with an intermediate render`() {
@@ -587,6 +598,207 @@ class MouseMoveTest {
             }
         }
     }
+
+    @Test
+    fun `window exit followed by layout does not trigger mouse enter`() = ImageComposeScene(
+        width = 100,
+        height = 100,
+    ).useInUiThread { scene ->
+        val collector = EventCollector()
+        var yOffset by mutableStateOf(0.dp)
+        scene.setContent {
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .offset(y = yOffset)
+                    .collectPointerEvents(collector)
+            )
+        }
+
+        scene.sendPointerEvent(PointerEventType.Enter, Offset(10f, 20f))
+        collector.assertCounts(enter = 1, exit = 0, move = 0)
+
+        // Deliberately send an exit event with coordinates still inside the box
+        scene.sendPointerEvent(PointerEventType.Exit, Offset(10f, 20f))
+        collector.assertCounts(enter = 1, exit = 1, move = 0)
+
+        // Trigger a layout, which then triggers SyntheticEventSender.updatePointerPosition
+        yOffset = 10.dp
+        scene.renderUntilIdle()
+
+        collector.assertCounts(enter = 1, exit = 1, move = 0)
+    }
+
+    @Test
+    fun `window exit while pressed followed by layout triggers mouse move`() = ImageComposeScene(
+        width = 100,
+        height = 100,
+    ).useInUiThread { scene ->
+        val collector = EventCollector()
+        var yOffset by mutableStateOf(0.dp)
+        scene.setContent {
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .offset(y = yOffset)
+                    .collectPointerEvents(collector)
+            )
+        }
+
+        scene.sendPointerEvent(PointerEventType.Enter, Offset(10f, 20f))
+        collector.assertCounts(enter = 1, exit = 0, move = 0)
+
+        scene.sendPointerEvent(PointerEventType.Press, Offset(10f, 20f))
+        collector.assertCounts(enter = 1, exit = 0, move = 0, press = 1)
+
+        scene.sendPointerEvent(PointerEventType.Exit, Offset(-10f, 20f))
+        collector.assertCounts(enter = 1, exit = 1, move = 0, press = 1)
+
+        // Trigger a layout, which then triggers SyntheticEventSender.updatePointerPosition
+        yOffset = 10.dp
+        scene.renderUntilIdle()
+
+        collector.assertCounts(enter = 1, exit = 1, move = 1, press = 1)
+    }
+
+    @Test
+    fun `window exit while pressed followed by mouse up and layout does not trigger mouse move`() = ImageComposeScene(
+        width = 100,
+        height = 100,
+    ).useInUiThread { scene ->
+        val collector = EventCollector()
+        var yOffset by mutableStateOf(0.dp)
+        scene.setContent {
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .offset(y = yOffset)
+                    .collectPointerEvents(collector)
+            )
+        }
+
+        scene.sendPointerEvent(PointerEventType.Enter, Offset(10f, 20f))
+        collector.assertCounts(enter = 1, exit = 0, move = 0)
+
+        scene.sendPointerEvent(PointerEventType.Press, Offset(10f, 20f))
+        collector.assertCounts(enter = 1, exit = 0, move = 0, press = 1)
+
+        scene.sendPointerEvent(PointerEventType.Exit, Offset(-10f, 20f))
+        collector.assertCounts(enter = 1, exit = 1, move = 0, press = 1)
+
+        scene.sendPointerEvent(PointerEventType.Release, Offset(-10f, 20f))
+        collector.assertCounts(enter = 1, exit = 1, move = 0, press = 1, release = 1)
+
+        // Trigger a layout, which then triggers SyntheticEventSender.updatePointerPosition
+        yOffset = 10.dp
+        scene.renderUntilIdle()
+
+        collector.assertCounts(enter = 1, exit = 1, move = 0, press = 1, release = 1)
+    }
+
+    @Test
+    fun `window exit while pressed continues to send mouse events to target element`() = ImageComposeScene(
+        width = 100,
+        height = 100,
+    ).useInUiThread { scene ->
+        val collector = EventCollector()
+        scene.setContent {
+            Box(
+                modifier = Modifier
+                    .size(50.dp)
+                    .collectPointerEvents(collector)
+            )
+        }
+
+        scene.sendPointerEvent(PointerEventType.Enter, Offset(10f, 20f))
+        collector.assertCounts(enter = 1, exit = 0, move = 0)
+
+        scene.sendPointerEvent(PointerEventType.Press, Offset(10f, 20f))
+        collector.assertCounts(enter = 1, exit = 0, move = 0, press = 1)
+
+        scene.sendPointerEvent(PointerEventType.Exit, Offset(-10f, 20f))
+        collector.assertCounts(enter = 1, exit = 1, move = 0, press = 1)
+
+        scene.sendPointerEvent(PointerEventType.Move, Offset(-20f, 20f))
+        collector.assertCounts(enter = 1, exit = 1, move = 1, press = 1)
+    }
+
+    @Test
+    fun `window exit clears lastKnownPointerPosition`() = ImageComposeScene(
+        width = 100,
+        height = 100,
+    ).useInUiThread { scene ->
+        lateinit var composeScene: ComposeScene
+        scene.setContent {
+            composeScene = LocalComposeScene.current!!
+            Box(Modifier.size(100.dp))
+        }
+
+        scene.sendPointerEvent(PointerEventType.Enter, Offset(10f, 20f))
+        // Deliberately send an exit event with coordinates still inside the box
+        scene.sendPointerEvent(PointerEventType.Exit, Offset(0f, 50f))
+
+        assertNull(composeScene.lastKnownPointerPosition)
+    }
+
+    // https://youtrack.jetbrains.com/issue/CMP-9964
+    @Test
+    fun magicMouseScenario() = ImageComposeScene(
+        width = 100,
+        height = 100,
+    ).useInUiThread { scene ->
+        var clicksCount = 0
+        scene.setContent {
+            Box(modifier = Modifier
+                .fillMaxSize()
+                .clickable {
+                    clicksCount++
+                }
+            )
+        }
+
+        // The bug in this scenario is that no mouse-release event was generated
+        // - SyntheticEventSender.sendMissingReleases didn't include the last released pointer
+        //   when receiving the 3rd event.
+        // - HitPathTracker ignores the 3rd event because it's a Move event at the same
+        //   coordinates as the previous (2nd) event.
+        // - CanvasLayersComposeScene.processPointerInputEvent clears `gestureOwner` after
+        //   receiving the 3rd event, so when it receives the 4th event, it doesn't send it.
+        scene.sendPointerEvent(PointerEventType.Press, Offset(10f, 10f), buttons = PointerButtons(isPrimaryPressed = true))
+        scene.sendPointerEvent(PointerEventType.Move, Offset(10f, 10f), buttons = PointerButtons(isPrimaryPressed = true))
+        scene.sendPointerEvent(PointerEventType.Move, Offset(10f, 10f), buttons = PointerButtons(isPrimaryPressed = false))
+        scene.sendPointerEvent(PointerEventType.Release, Offset(10f, 10f))
+
+        assertEquals(1, clicksCount)
+    }
+
+    @Test
+    fun allNativeMouseEventsAreSent1() = ImageComposeScene(
+        width = 100,
+        height = 100,
+    ).useInUiThread { scene ->
+        val nativeEventsReceived = mutableListOf<Any>()
+        scene.setContent {
+            Box(modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Main)
+                            event.nativeEvent?.let { nativeEventsReceived.add(it) }
+                        }
+                    }
+                }
+            )
+        }
+
+        scene.sendPointerEvent(PointerEventType.Press, Offset(10f, 10f), buttons = PointerButtons(isPrimaryPressed = true), nativeEvent = 1)
+        scene.sendPointerEvent(PointerEventType.Move, Offset(10f, 10f), buttons = PointerButtons(isPrimaryPressed = true), nativeEvent = 2)
+        scene.sendPointerEvent(PointerEventType.Move, Offset(10f, 10f), buttons = PointerButtons(isPrimaryPressed = false), nativeEvent = 3)
+        scene.sendPointerEvent(PointerEventType.Release, Offset(10f, 10f), nativeEvent = 4)
+
+        assertContentEquals(listOf(1, 2, 3, 4), nativeEventsReceived)
+    }
 }
 
 private fun Modifier.collectPointerEvents(
@@ -605,6 +817,7 @@ private class EventCollector {
     private var exitCount = 0
     private var moveCount = 0
     private var pressCount = 0
+    private var releaseCount = 0
     private var enterPosition: Offset? = null
     private var exitPosition: Offset? = null
     private var movePosition: Offset? = null
@@ -628,6 +841,10 @@ private class EventCollector {
                 pressCount++
                 pressPosition = event.changes[0].position
             }
+            PointerEventType.Release -> {
+                releaseCount++
+                pressPosition = null
+            }
         }
     }
 
@@ -636,6 +853,7 @@ private class EventCollector {
         exit: Int = -1,
         move: Int = -1,
         press: Int = -1,
+        release: Int = -1,
     ) {
         if (enter >= 0) {
             assertWithMessage("enter count").that(this.enterCount).isEqualTo(enter)
@@ -648,6 +866,9 @@ private class EventCollector {
         }
         if (press >= 0) {
             assertWithMessage("press count").that(this.pressCount).isEqualTo(press)
+        }
+        if (release >= 0) {
+            assertWithMessage("release count").that(this.releaseCount).isEqualTo(release)
         }
     }
 
@@ -671,3 +892,20 @@ private class EventCollector {
         }
     }
 }
+
+/**
+ * Render the current content until there are no more invalidations.
+ *
+ * @param initialNanoTime The time to start rendering from.
+ * @param stepNanoTime The time to step rendering by.
+ */
+internal fun ImageComposeScene.renderUntilIdle(initialNanoTime: Long = 0, stepNanoTime: Long = 16L): Long {
+    var time = initialNanoTime
+    Snapshot.sendApplyNotifications()  // Needed for the scene to be notified of state changes
+    while (hasInvalidations()) {
+        render(time)
+        time += stepNanoTime
+    }
+    return time
+}
+

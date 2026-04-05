@@ -22,13 +22,11 @@ import androidx.compose.runtime.mock.Text
 import androidx.compose.runtime.mock.compositionTest
 import androidx.compose.runtime.mock.expectNoChanges
 import androidx.compose.runtime.snapshots.Snapshot
-import kotlin.coroutines.EmptyCoroutineContext
-import kotlin.test.Ignore
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
-import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -42,9 +40,6 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.test.IgnoreJsTarget
-import kotlinx.test.IgnoreNativeTarget
-import kotlinx.test.IgnoreWasmTarget
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RecomposerTests {
@@ -257,24 +252,6 @@ class RecomposerTests {
     }
 
     @Test
-    @OptIn(ExperimentalComposeApi::class)
-    fun compositionRecomposeContextDelegation() {
-        val recomposer = Recomposer(EmptyCoroutineContext)
-        val parent = Composition(UnitApplier(), recomposer, CoroutineName("testParent"))
-        lateinit var child: ControlledComposition
-        parent.setContent {
-            val parentContext = rememberCompositionContext()
-            SideEffect { child = ControlledComposition(UnitApplier(), parentContext) }
-        }
-
-        assertEquals(
-            "testParent",
-            child.recomposeCoroutineContext[CoroutineName]?.name,
-            "child did not inherit parent recomposeCoroutineContext",
-        )
-    }
-
-    @Test
     fun readDuringWithoutReadObservationDoesntCauseRecomposition() = compositionTest {
         var someState by mutableStateOf(0)
         var recompostions = 0
@@ -356,12 +333,7 @@ class RecomposerTests {
         }
     }
 
-    // TODO: b/409727145
-    // TODO: https://youtrack.jetbrains.com/issue/CMP-7455
     @Test
-    @IgnoreJsTarget
-    @IgnoreWasmTarget
-    @IgnoreNativeTarget
     fun stateChangesDuringApplyChangesAreNotifiedBeforeFrameFinished() = compositionTest {
         val count = mutableStateOf(0)
         val countFromEffect = mutableStateOf(0)
@@ -386,26 +358,30 @@ class RecomposerTests {
 
         // Register the apply observer after changing state to invalidate composition, but
         // before actually allowing the recomposition to happen.
-        Snapshot.registerApplyObserver { applied, _ -> applications += applied }
-        assertTrue(applications.isEmpty())
+        val observerHandle =
+            Snapshot.registerApplyObserver { applied, _ -> applications += applied }
 
-        assertEquals(1, advanceCount())
+        try {
+            assertTrue(applications.isEmpty())
 
-        // Make sure we actually recomposed.
-        assertEquals(2, recompositions)
+            assertEquals(1, advanceCount())
 
-        // The Recomposer should have received notification for the node's state.
-        @Suppress("RemoveExplicitTypeArguments")
-        assertEquals<List<Set<Any>>>(listOf(setOf(countFromEffect)), applications)
+            // Make sure we actually recomposed.
+            assertEquals(2, recompositions)
+
+            // The Recomposer should have received notification for the node's state.
+            assertContentEquals(listOf(setOf(countFromEffect)), applications)
+        } finally {
+            observerHandle.dispose()
+        }
     }
 
-    @Ignore // b/329682091
     @OptIn(DelicateCoroutinesApi::class)
     @Test // b/329011032
     fun validatePotentialDeadlock() = compositionTest {
         var state by mutableIntStateOf(0)
         compose {
-            repeat(1000) { Text("This is some text: $state") }
+            repeat(200) { Text("This is some text: $state") }
             LaunchedEffect(Unit) {
                 while (true) {
                     withContext(Dispatchers.Default) {

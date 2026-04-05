@@ -171,8 +171,8 @@ internal constructor(
      * data points is when tracking velocity for an object whose positions on a geometrical axis
      * over different instances of time are known.
      *
-     * @param isDataDifferential [true] if the data ponits provided to the constructed tracker are
-     *   differential. [false] otherwise.
+     * @param isDataDifferential `true` if the data ponits provided to the constructed tracker are
+     *   differential. `false` otherwise.
      */
     constructor(isDataDifferential: Boolean) : this(isDataDifferential, Strategy.Impulse)
 
@@ -500,10 +500,10 @@ internal fun polyFitLeastSquares(
  * Summing along the path, we get: W = sum(dW) = sum(m * v * dv) = m * sum(v * dv) Since the mass
  * stays constant, the equation for final velocity is: vfinal = sqrt(2*sum(v * dv))
  *
- * Here, dv : change of velocity = (v[i+1]-v[i]) dx : change of distance = (x[i+1]-x[i]) dt : change
- * of time = (t[i+1]-t[i]) v : instantaneous velocity = dx/dt
+ * Here, dv : change of velocity = `(v[i+1]-v[i])` dx : change of distance = `(x[i+1]-x[i])` dt :
+ * change of time = `(t[i+1]-t[i])` v : instantaneous velocity = dx/dt
  *
- * The final formula is: vfinal = sqrt(2) * sqrt(sum((v[i]-v[i-1])*|v[i]|)) for all i The absolute
+ * The final formula is: vfinal = `sqrt(2) * sqrt(sum((v[i]-v[i-1])*|v[i]|))` for all i The absolute
  * value is needed to properly account for the sign. If the velocity over a particular segment
  * descreases, then this indicates braking, which means that negative work was done. So for two
  * positive, but decreasing, velocities, this contribution would be negative and will cause a
@@ -608,19 +608,9 @@ private inline operator fun Matrix.set(row: Int, col: Int, value: Float) {
  * with the new fix, flip this flag to false to confirm they are newly introduced then file a bug.
  * Tracking bug: (b/318621681)
  */
-@Suppress("GetterSetterNames", "NullAnnotationGroup")
+@Suppress("GetterSetterNames")
 @ExperimentalComposeUiApi
 var VelocityTrackerAddPointsFix: Boolean = true
-
-/**
- * Selecting flag to enable impulse strategy for the velocity trackers. This is an experiment flag
- * and will be removed once the experiments with the fix a finished. The final goal is that we will
- * use the true path once the flag is removed. If you find any issues with the new fix, flip this
- * flag to false to confirm they are newly introduced then file a bug. Tracking bug: (b/318621681)
- */
-@Suppress("GetterSetterNames")
-@ExperimentalVelocityTrackerApi
-var VelocityTrackerStrategyUseImpulse = false
 
 @RequiresOptIn(
     "This an opt-in flag to test the Velocity Tracker strategy algorithm used " +

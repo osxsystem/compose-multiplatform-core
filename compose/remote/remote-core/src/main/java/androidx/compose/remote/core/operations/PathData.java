@@ -18,6 +18,7 @@ package androidx.compose.remote.core.operations;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.FLOAT_ARRAY;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.INT;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteContext;
@@ -34,6 +35,7 @@ import org.jspecify.annotations.Nullable;
 import java.util.Arrays;
 import java.util.List;
 
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class PathData extends Operation implements VariableSupport, Serializable {
     private static final int OP_CODE = Operations.DATA_PATH;
     private static final String CLASS_NAME = "PathData";
@@ -44,7 +46,8 @@ public class PathData extends Operation implements VariableSupport, Serializable
     int mWinding;
     private boolean mPathChanged = true;
 
-    PathData(int instanceId, float[] floatPath, int winding) {
+    @SuppressWarnings("UnknownNullness") // Annotations on a primitive array are compile error.
+    public PathData(int instanceId, float[] floatPath, int winding) {
         mInstanceId = instanceId;
         mFloatPath = floatPath;
         mOutputPath = Arrays.copyOf(mFloatPath, mFloatPath.length);
@@ -179,11 +182,11 @@ public class PathData extends Operation implements VariableSupport, Serializable
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Data Operations", OP_CODE, CLASS_NAME)
-                .description("Encode a Path ")
-                .field(DocumentedOperation.INT, "id", "id string")
-                .field(INT, "length", "id string")
-                .field(FLOAT_ARRAY, "pathData", "length", "path encoded as floats");
+        doc.operation("Canvas Operations", OP_CODE, CLASS_NAME)
+                .description("Define a complete static path")
+                .field(DocumentedOperation.INT, "idAndWinding", "Encoded ID and winding rule")
+                .field(INT, "length", "The number of elements in the path data")
+                .field(FLOAT_ARRAY, "pathData", "The sequence of commands and coordinates");
     }
 
     /**

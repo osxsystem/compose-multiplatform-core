@@ -37,8 +37,8 @@ import androidx.compose.ui.input.pointer.areAnyPressed
 import androidx.compose.ui.input.pointer.copy
 import androidx.compose.ui.node.RootNodeOwner
 import androidx.compose.ui.util.fastFirstOrNull
+import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.util.trace
-import org.jetbrains.skiko.currentNanoTime
 
 /**
  * Handles input events for [ComposeScene].
@@ -74,13 +74,15 @@ internal class ComposeSceneInputHandler(
     fun onPointerEvent(
         eventType: PointerEventType,
         position: Offset,
-        scrollDelta: Offset = Offset(0f, 0f),
-        timeMillis: Long = (currentNanoTime() / 1E6).toLong(),
-        type: PointerType = PointerType.Mouse,
-        buttons: PointerButtons? = null,
-        keyboardModifiers: PointerKeyboardModifiers? = null,
-        nativeEvent: Any? = null,
-        button: PointerButton? = null
+        scrollDelta: Offset,
+        timeMillis: Long,
+        type: PointerType,
+        buttons: PointerButtons?,
+        keyboardModifiers: PointerKeyboardModifiers?,
+        nativeEvent: Any?,
+        button: PointerButton?,
+        scaleGestureFactor: Float,
+        panGestureOffset: Offset,
     ): PointerEventResult {
         defaultPointerStateTracker.onPointerEvent(button, eventType)
 
@@ -89,14 +91,16 @@ internal class ComposeSceneInputHandler(
             keyboardModifiers ?: defaultPointerStateTracker.keyboardModifiers
 
         return onPointerEvent(
-            eventType,
-            listOf(ComposeScenePointer(PointerId(0), position, actualButtons.areAnyPressed, type)),
-            actualButtons,
-            actualKeyboardModifiers,
-            scrollDelta,
-            timeMillis,
-            nativeEvent,
-            button
+            eventType = eventType,
+            pointers = listOf(ComposeScenePointer(PointerId(0), position, actualButtons.areAnyPressed, type)),
+            buttons = actualButtons,
+            keyboardModifiers = actualKeyboardModifiers,
+            scrollDelta = scrollDelta,
+            timeMillis = timeMillis,
+            nativeEvent = nativeEvent,
+            button = button,
+            scaleGestureFactor = scaleGestureFactor,
+            panGestureOffset = panGestureOffset,
         )
     }
 
@@ -108,22 +112,26 @@ internal class ComposeSceneInputHandler(
     fun onPointerEvent(
         eventType: PointerEventType,
         pointers: List<ComposeScenePointer>,
-        buttons: PointerButtons = PointerButtons(),
-        keyboardModifiers: PointerKeyboardModifiers = PointerKeyboardModifiers(),
-        scrollDelta: Offset = Offset(0f, 0f),
-        timeMillis: Long = (currentNanoTime() / 1E6).toLong(),
-        nativeEvent: Any? = null,
-        button: PointerButton? = null,
+        buttons: PointerButtons,
+        keyboardModifiers: PointerKeyboardModifiers,
+        scrollDelta: Offset,
+        timeMillis: Long,
+        nativeEvent: Any?,
+        button: PointerButton?,
+        scaleGestureFactor: Float,
+        panGestureOffset: Offset,
     ): PointerEventResult {
         val event = PointerInputEvent(
-            eventType,
-            pointers,
-            timeMillis,
-            nativeEvent,
-            scrollDelta,
-            buttons,
-            keyboardModifiers,
-            button,
+            eventType = eventType,
+            pointers = pointers,
+            timeMillis = timeMillis,
+            nativeEvent = nativeEvent,
+            scrollDelta = scrollDelta,
+            buttons = buttons,
+            keyboardModifiers = keyboardModifiers,
+            changedButton = button,
+            scaleGestureFactor = scaleGestureFactor,
+            panGestureOffset = panGestureOffset,
         )
         prepareForPointerInputEvent()
         val updatePointerPositionResult = updatePointerPosition()
@@ -151,15 +159,16 @@ internal class ComposeSceneInputHandler(
 
     private fun updatePointerPositions(event: PointerInputEvent) {
         // update positions for pointers that are down + mouse (if it is not Exit event)
-        for (pointer in event.pointers) {
+        event.pointers.fastForEach { pointer ->
             if ((pointer.type == PointerType.Mouse && event.eventType != PointerEventType.Exit) ||
                 pointer.down
             ) {
                 pointerPositions[pointer.id] = pointer.position
             }
         }
-        // touches/styluses positions should be removed from [pointerPositions] if they are not down anymore
-        // also, mouse exited ComposeScene should be removed
+
+        // touches/styluses positions should be removed from [pointerPositions] if they are not down
+        // anymore also, mouse exited ComposeScene should be removed
         val iterator = pointerPositions.iterator()
         while (iterator.hasNext()) {
             val pointerId = iterator.next().key

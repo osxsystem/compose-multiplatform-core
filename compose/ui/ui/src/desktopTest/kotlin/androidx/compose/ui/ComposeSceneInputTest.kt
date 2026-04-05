@@ -19,6 +19,7 @@ package androidx.compose.ui
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.unit.IntRect
+import kotlin.test.Ignore
 import org.junit.Test
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -66,12 +67,6 @@ class ComposeSceneInputTest {
             overlappedPopup.Content()
             independentPopup.Content()
         }
-
-        // Popup takes two iterations to complete its layout, so we need to run render an extra time
-        // TODO(maryanovsky): Remove this when https://github.com/JetBrains/compose-jb/issues/2726
-        //                    is completed.
-        while (scene.hasInvalidations())
-            scene.render()
 
         scene.sendPointerEvent(PointerEventType.Enter, Offset(5f, 5f))
         background.events.assertReceivedNoEvents()
@@ -161,12 +156,6 @@ class ComposeSceneInputTest {
             overlappedPopup.Content()
             independentPopup.Content()
         }
-
-        // Popup takes two iterations to complete its layout, so we need to run render an extra time
-        // TODO(maryanovsky): Remove this when https://github.com/JetBrains/compose-jb/issues/2726
-        //                    is completed.
-        while (scene.hasInvalidations())
-            scene.render()
 
         scene.sendPointerEvent(PointerEventType.Enter, Offset(5f, 5f))
         scene.sendPointerEvent(PointerEventType.Press, Offset(5f, 5f))
@@ -293,6 +282,61 @@ class ComposeSceneInputTest {
         background.events.assertReceived(PointerEventType.Move, Offset(30f, 10f))
         background.events.assertReceivedLast(PointerEventType.Scroll, Offset(30f, 10f))
     }
+
+    @Test
+    fun pan() = ImageComposeScene(100, 100).useInUiThread { scene ->
+        val background = FillBox()
+
+        scene.setContent {
+            background.Content()
+        }
+
+        scene.sendPointerEvent(PointerEventType.Enter, Offset(20f, 10f))
+        background.events.assertReceivedLast(PointerEventType.Enter, Offset(20f, 10f))
+
+        scene.sendPointerEvent(PointerEventType.PanMove, Offset(10f, 10f))
+        background.events.assertReceived(PointerEventType.Move, Offset(10f, 10f))
+        background.events.assertReceived(PointerEventType.PanStart, Offset(10f, 10f))
+        background.events.assertReceivedLast(PointerEventType.PanMove, Offset(10f, 10f))
+
+        scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 10f))
+        background.events.assertReceivedLast(PointerEventType.Move, Offset(20f, 10f))
+
+        scene.sendPointerEvent(PointerEventType.PanMove, Offset(20f, 10f))
+        background.events.assertReceivedLast(PointerEventType.PanMove, Offset(20f, 10f))
+
+        scene.sendPointerEvent(PointerEventType.PanMove, Offset(30f, 10f))
+        background.events.assertReceived(PointerEventType.Move, Offset(30f, 10f))
+        background.events.assertReceivedLast(PointerEventType.PanMove, Offset(30f, 10f))
+    }
+
+    @Test
+    fun scale() = ImageComposeScene(100, 100).useInUiThread { scene ->
+        val background = FillBox()
+
+        scene.setContent {
+            background.Content()
+        }
+
+        scene.sendPointerEvent(PointerEventType.Enter, Offset(20f, 10f))
+        background.events.assertReceivedLast(PointerEventType.Enter, Offset(20f, 10f))
+
+        scene.sendPointerEvent(PointerEventType.ScaleChange, Offset(10f, 10f))
+        background.events.assertReceived(PointerEventType.Move, Offset(10f, 10f))
+        background.events.assertReceived(PointerEventType.ScaleStart, Offset(10f, 10f))
+        background.events.assertReceivedLast(PointerEventType.ScaleChange, Offset(10f, 10f))
+
+        scene.sendPointerEvent(PointerEventType.Move, Offset(20f, 10f))
+        background.events.assertReceivedLast(PointerEventType.Move, Offset(20f, 10f))
+
+        scene.sendPointerEvent(PointerEventType.ScaleChange, Offset(20f, 10f))
+        background.events.assertReceivedLast(PointerEventType.ScaleChange, Offset(20f, 10f))
+
+        scene.sendPointerEvent(PointerEventType.ScaleChange, Offset(30f, 10f))
+        background.events.assertReceived(PointerEventType.Move, Offset(30f, 10f))
+        background.events.assertReceivedLast(PointerEventType.ScaleChange, Offset(30f, 10f))
+    }
+
 
     @Test
     fun touch() = ImageComposeScene(100, 100).useInUiThread { scene ->

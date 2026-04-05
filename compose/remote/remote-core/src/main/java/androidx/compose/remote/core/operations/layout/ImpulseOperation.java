@@ -15,6 +15,7 @@
  */
 package androidx.compose.remote.core.operations.layout;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.PaintContext;
@@ -34,9 +35,10 @@ import java.util.List;
 
 /**
  * Represents a Impulse Event To trigger an impulse event. set the startAt time to the
- * context.getAnimationTime() Impluse Operation. This operation execute a list of actions once and
- * the impluseProcess is executed for a fixed duration
+ * context.getAnimationTime() Impulse Operation. This operation execute a list of actions once and
+ * the impulseProcess is executed for a fixed duration
  */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class ImpulseOperation extends PaintOperation implements VariableSupport, Container {
     private static final int OP_CODE = Operations.IMPULSE_START;
     private static final String CLASS_NAME = "ImpulseOperation";
@@ -54,8 +56,8 @@ public class ImpulseOperation extends PaintOperation implements VariableSupport,
     /**
      * Constructor for a Impulse Operation
      *
-     * @param duration the duration of the impluse
-     * @param startAt the start time of the impluse
+     * @param duration the duration of the impulse
+     * @param startAt the start time of the impulse
      */
     public ImpulseOperation(float duration, float startAt) {
         mDuration = duration;
@@ -140,7 +142,7 @@ public class ImpulseOperation extends PaintOperation implements VariableSupport,
     public void paint(@NonNull PaintContext context) {
         RemoteContext remoteContext = context.getContext();
 
-        if (remoteContext.getAnimationTime() < mOutStartAt + mOutDuration) {
+        if (remoteContext.getAnimationTime() <= mOutStartAt + mOutDuration) {
             if (mInitialPass) {
                 for (Operation op : mList) {
                     if (op instanceof VariableSupport && op.isDirty()) {
@@ -203,12 +205,11 @@ public class ImpulseOperation extends PaintOperation implements VariableSupport,
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Operations", OP_CODE, name())
+        doc.operation("Animation & Particles Operations", OP_CODE, CLASS_NAME)
                 .description(
-                        "Impulse Operation. This operation execute a list of action for a fixed"
-                                + " duration")
-                .field(DocumentedOperation.FLOAT, "duration", "How long to last")
-                .field(DocumentedOperation.FLOAT, "startAt", "value step");
+                        "Execute a list of actions once, and a process block for a fixed duration")
+                .field(DocumentedOperation.FLOAT, "duration", "Duration of the impulse")
+                .field(DocumentedOperation.FLOAT, "startAt", "The start time of the impulse");
     }
 
     /**

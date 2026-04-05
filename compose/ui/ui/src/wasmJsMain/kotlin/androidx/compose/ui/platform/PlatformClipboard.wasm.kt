@@ -14,17 +14,21 @@
  * limitations under the License.
  */
 
+@file:OptIn(ExperimentalWasmJsInterop::class)
+
 package androidx.compose.ui.platform
 
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.InternalComposeUiApi
+import androidx.compose.ui.text.AnnotatedString
 import kotlin.getValue
 import kotlin.js.Promise
-import kotlinx.browser.window
 import kotlinx.coroutines.await
 import org.w3c.files.Blob
 
-actual typealias NativeClipboard = W3CTemporaryClipboard
+private val browserClipboard by lazy {
+    getW3CClipboard()
+}
 
 private val isSecureContext: Boolean by lazy {
     isSecureContext()
@@ -40,12 +44,27 @@ private val isFallbackWriteTextApiAvailable: Boolean by lazy {
     isSecureContext && isFallbackWriteTextApiAvailable()
 }
 
-class WasmPlatformClipboard : Clipboard {
+@Suppress("DEPRECATION")
+private class WasmPlatformClipboardManager : ClipboardManager {
+    // Clipboard.readText() is async; no synchronous access on Web.
+    override fun getText(): AnnotatedString? = null
 
-    private val browserClipboard by lazy {
-        getW3CClipboard()
+    override fun setText(annotatedString: AnnotatedString) {
+         if (isFallbackWriteTextApiAvailable) {
+             browserClipboard.writeText(annotatedString.text)
+        }
     }
 
+    // Clipboard.readText() is async; no synchronous access on Web.
+    override fun hasText(): Boolean = false
+
+    override fun getClip(): ClipEntry? = null
+
+    @Suppress("GetterSetterNames")
+    override fun setClip(clipEntry: ClipEntry?) = Unit
+}
+
+private class WasmPlatformClipboard : Clipboard {
     init {
         if (!isSecureContext) {
             warn("Clipboard API is not available in insecure contexts.")
@@ -92,15 +111,19 @@ class WasmPlatformClipboard : Clipboard {
         get() = browserClipboard
 }
 
-private val wasmPlatformClipboard: WasmPlatformClipboard by lazy { WasmPlatformClipboard() }
+@Suppress("DEPRECATION")
+internal actual fun createPlatformClipboardManager(): ClipboardManager = WasmPlatformClipboardManager()
 
-internal actual fun createPlatformClipboard(): Clipboard = wasmPlatformClipboard
+internal actual fun createPlatformClipboard(): Clipboard = WasmPlatformClipboard()
 
 actual class ClipEntry
 @ExperimentalComposeUiApi
-constructor(val clipboardItems: JsArray<ClipboardItem>) {
+constructor(
+    @property:ExperimentalComposeUiApi
+    val clipboardItems: JsArray<ClipboardItem>
+) {
 
-    // TODO https://youtrack.jetbrains.com/issue/CMP-1260/ClipboardManager.-Implement-getClip-getClipMetadata-setClip
+    // TODO: https://youtrack.jetbrains.com/issue/CMP-1260
     actual val clipMetadata: ClipMetadata
         get() = TODO("ClipMetadata is not implemented. Consider using nativeClipboard")
 
@@ -139,33 +162,4 @@ private fun invalidClipboardItems(): JsArray<ClipboardItem> =
 
 private fun warn(text: String) {
     js("console.warn(text)")
-}
-
-/**
- * https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API
- *
- * We declare this external interface temporary because
- * the IDL in kotlinx-browser is incorrect:
- * https://github.com/Kotlin/kotlinx-browser/issues/14
- */
-@ExperimentalComposeUiApi
-@JsName("Clipboard")
-external class W3CTemporaryClipboard {
-    fun read(): Promise<JsArray<ClipboardItem>>
-    fun write(data: JsArray<ClipboardItem>): Promise<Nothing>
-    fun writeText(text: String): Promise<Nothing>
-}
-
-/**
- * https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API
- *
- * We declare this external interface temporary because
- * the IDL in kotlinx-browser is incorrect:
- * https://github.com/Kotlin/kotlinx-browser/issues/14
- */
-@ExperimentalComposeUiApi
-@JsName("ClipboardItem")
-external interface ClipboardItem : JsAny {
-    val types: JsArray<JsString>
-    fun getType(type: JsString): Promise<Blob>
 }

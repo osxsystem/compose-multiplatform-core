@@ -17,9 +17,11 @@
 package androidx.compose.ui.window
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ComposableOpenTarget
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCompositionContext
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.awt.ComposeWindow
@@ -79,7 +81,7 @@ import javax.swing.JMenuBar
  * @param icon Icon in the title bar of the window (for platforms that support this).
  * On macOS individual windows can't have a separate icon. To change the icon in the Dock,
  * set it via `iconFile` in build.gradle
- * (https://github.com/JetBrains/compose-jb/tree/master/tutorials/Native_distributions_and_local_execution#platform-specific-options)
+ * (https://kotlinlang.org/docs/multiplatform/compose-native-distribution.html#platform-specific-options)
  * @param decoration Specifies the decoration for this window.
  * @param transparent Disables or enables window transparency. Transparency may be set only if the
  * window is undecorated, otherwise an exception will be thrown.
@@ -101,6 +103,7 @@ import javax.swing.JMenuBar
  */
 @ExperimentalComposeUiApi
 @Composable
+@ComposableOpenTarget(-1)
 fun Window(
     onCloseRequest: () -> Unit,
     state: WindowState = rememberWindowState(),
@@ -185,7 +188,7 @@ fun Window(
  * @param icon Icon in the title bar of the window (for platforms that support this).
  * On macOS individual windows can't have a separate icon. To change the icon in the Dock,
  * set it via `iconFile` in build.gradle
- * (https://github.com/JetBrains/compose-jb/tree/master/tutorials/Native_distributions_and_local_execution#platform-specific-options)
+ * (https://kotlinlang.org/docs/multiplatform/compose-native-distribution.html#platform-specific-options)
  * @param undecorated Disables or enables decorations for this window.
  * @param transparent Disables or enables window transparency. Transparency may be set only if the
  * window is undecorated, otherwise an exception will be thrown.
@@ -206,6 +209,7 @@ fun Window(
  * @param content Composable content of the window.
  */
 @Composable
+@ComposableOpenTarget(-1)
 fun Window(
     onCloseRequest: () -> Unit,
     state: WindowState = rememberWindowState(),
@@ -241,22 +245,23 @@ fun Window(
 }
 
 /**
- * An entry point for the Compose application with single window.
+ * An entry point for Compose applications that only need a single top-level window.
  *
  * If you need to change attributes of the window in runtime, or need a custom closing logic, use
- * Composable `Window` in `application` entry point instead:
+ * Composable [androidx.compose.ui.window.Window] in [application] entry point instead:
  * ```
  * application {
  *     Window(...) { }
  * }
  * ```
  *
- * Set [exitProcessOnExit] to `false`, if you need to execute some code after [singleWindowApplication] block, otherwise the code after it
- * won't be executed, as [singleWindowApplication] will exit the process.
+ * Set [exitProcessOnExit] to `false` if you need to execute code after the
+ * [singleWindowApplication] block, otherwise it won't be executed as [singleWindowApplication] will
+ * exit the process.
  *
  * @param state The state object to be used to control or observe the window's state
- * When size/position/status is changed by the user, state will be updated.
- * When size/position/status of the window is changed by the application (changing state),
+ * When the size / position / status is changed by the user, the state will be updated.
+ * When the size / position / status of the window is changed by the application (changing state),
  * the native window will update its corresponding properties.
  * If application changes, for example [WindowState.placement], then after the next
  * recomposition, [WindowState.size] will be changed to correspond the real size of the window.
@@ -272,7 +277,7 @@ fun Window(
  * @param icon Icon in the title bar of the window (for platforms that support this).
  * On macOS individual windows can't have a separate icon. To change the icon in the Dock,
  * set it via `iconFile` in build.gradle
- * (https://github.com/JetBrains/compose-jb/tree/master/tutorials/Native_distributions_and_local_execution#platform-specific-options)
+ * (https://kotlinlang.org/docs/multiplatform/compose-native-distribution.html#platform-specific-options)
  * @param decoration Specifies the decoration for this window.
  * @param transparent Disables or enables window transparency. Transparency may be set only if the
  * window is undecorated, otherwise an exception will be thrown.
@@ -290,13 +295,57 @@ fun Window(
  * @param onKeyEvent This callback is invoked when the user interacts with the hardware
  * keyboard. While implementing this callback, return true to stop propagation of this event.
  * If you return false, the key event will be sent to this [onKeyEvent]'s parent.
- * @param exitProcessOnExit should `exitProcess(0)` be called after the window is closed.
- * exitProcess speedup process exit (instant instead of 1-4sec).
+ * @param exitProcessOnExit Whether `exitProcess(0)` will be called after the window is closed.
+ * `exitProcess` speeds up process exit (instant instead of 1-4sec).
  * If `false`, the execution of the function will be unblocked after application is exited
  * (when the last window is closed, and all [LaunchedEffect]s are complete).
  * @param content Composable content of the window.
  */
 @ExperimentalComposeUiApi
+@JvmName("singleWindowApplicationWithAppScope")
+fun singleWindowApplication(
+    state: WindowState = WindowState(),
+    visible: Boolean = true,
+    title: String = "Untitled",
+    icon: Painter? = null,
+    decoration: WindowDecoration,
+    transparent: Boolean = false,
+    resizable: Boolean = true,
+    enabled: Boolean = true,
+    focusable: Boolean = true,
+    alwaysOnTop: Boolean = false,
+    onPreviewKeyEvent: (KeyEvent) -> Boolean = { false },
+    onKeyEvent: (KeyEvent) -> Boolean = { false },
+    exitProcessOnExit: Boolean = true,
+    content: @Composable SingleWindowApplicationScope.() -> Unit
+) = application(exitProcessOnExit = exitProcessOnExit) {
+    Window(
+        onCloseRequest = ::exitApplication,
+        state = state,
+        visible = visible,
+        title = title,
+        icon = icon,
+        decoration = decoration,
+        transparent = transparent,
+        resizable = resizable,
+        enabled = enabled,
+        focusable = focusable,
+        alwaysOnTop = alwaysOnTop,
+        onPreviewKeyEvent = onPreviewKeyEvent,
+        onKeyEvent = onKeyEvent,
+        content = {
+            with(SingleWindowApplicationScope(this@application, this@Window)) {
+                content()
+            }
+        }
+    )
+}
+
+@ExperimentalComposeUiApi
+@Deprecated(
+    level = DeprecationLevel.HIDDEN,
+    message = "Replaced by override that takes a `SingleWindowApplicationScope`"
+)
 fun singleWindowApplication(
     state: WindowState = WindowState(),
     visible: Boolean = true,
@@ -332,22 +381,23 @@ fun singleWindowApplication(
 }
 
 /**
- * An entry point for the Compose application with single window.
+ * An entry point for Compose applications that only need a single top-level window.
  *
  * If you need to change attributes of the window in runtime, or need a custom closing logic, use
- * Composable `Window` in `application` entry point instead:
+ * Composable `Window` in [application] entry point instead:
  * ```
  * application {
  *     Window(...) { }
  * }
  * ```
  *
- * Set [exitProcessOnExit] to `false`, if you need to execute some code after [singleWindowApplication] block, otherwise the code after it
- * won't be executed, as [singleWindowApplication] will exit the process.
+ * Set [exitProcessOnExit] to `false` if you need to execute code after the
+ * [singleWindowApplication] block, otherwise it won't be executed as [singleWindowApplication] will
+ * exit the process.
  *
  * @param state The state object to be used to control or observe the window's state
- * When size/position/status is changed by the user, state will be updated.
- * When size/position/status of the window is changed by the application (changing state),
+ * When the size / position / status is changed by the user, the state will be updated.
+ * When the size / position / status of the window is changed by the application (changing state),
  * the native window will update its corresponding properties.
  * If application changes, for example [WindowState.placement], then after the next
  * recomposition, [WindowState.size] will be changed to correspond the real size of the window.
@@ -363,7 +413,7 @@ fun singleWindowApplication(
  * @param icon Icon in the title bar of the window (for platforms that support this).
  * On macOS individual windows can't have a separate icon. To change the icon in the Dock,
  * set it via `iconFile` in build.gradle
- * (https://github.com/JetBrains/compose-jb/tree/master/tutorials/Native_distributions_and_local_execution#platform-specific-options)
+ * (https://kotlinlang.org/docs/multiplatform/compose-native-distribution.html#platform-specific-options)
  * @param undecorated Disables or enables decorations for this window.
  * @param transparent Disables or enables window transparency. Transparency may be set only if the
  * window is undecorated, otherwise an exception will be thrown.
@@ -381,12 +431,51 @@ fun singleWindowApplication(
  * @param onKeyEvent This callback is invoked when the user interacts with the hardware
  * keyboard. While implementing this callback, return true to stop propagation of this event.
  * If you return false, the key event will be sent to this [onKeyEvent]'s parent.
- * @param exitProcessOnExit should `exitProcess(0)` be called after the window is closed.
- * exitProcess speedup process exit (instant instead of 1-4sec).
+ * @param exitProcessOnExit Whether `exitProcess(0)` will be called after the window is closed.
+ * `exitProcess` speeds up process exit (instant instead of 1-4sec).
  * If `false`, the execution of the function will be unblocked after application is exited
  * (when the last window is closed, and all [LaunchedEffect]s are complete).
  * @param content Composable content of the window.
  */
+@JvmName("singleWindowApplicationWithAppScope")
+fun singleWindowApplication(
+    state: WindowState = WindowState(),
+    visible: Boolean = true,
+    title: String = "Untitled",
+    icon: Painter? = null,
+    undecorated: Boolean = false,
+    transparent: Boolean = false,
+    resizable: Boolean = true,
+    enabled: Boolean = true,
+    focusable: Boolean = true,
+    alwaysOnTop: Boolean = false,
+    onPreviewKeyEvent: (KeyEvent) -> Boolean = { false },
+    onKeyEvent: (KeyEvent) -> Boolean = { false },
+    exitProcessOnExit: Boolean = true,
+    content: @Composable SingleWindowApplicationScope.() -> Unit
+) {
+    singleWindowApplication(
+        state = state,
+        visible = visible,
+        title = title,
+        icon = icon,
+        decoration = windowDecorationFromFlag(undecorated),
+        transparent = transparent,
+        resizable = resizable,
+        enabled = enabled,
+        focusable = focusable,
+        alwaysOnTop = alwaysOnTop,
+        onPreviewKeyEvent = onPreviewKeyEvent,
+        onKeyEvent = onKeyEvent,
+        exitProcessOnExit = exitProcessOnExit,
+        content = content,
+    )
+}
+
+@Deprecated(
+    level = DeprecationLevel.HIDDEN,
+    message = "Replaced by override that takes a `SingleWindowApplicationScope`"
+)
 fun singleWindowApplication(
     state: WindowState = WindowState(),
     visible: Boolean = true,
@@ -466,6 +555,7 @@ fun singleWindowApplication(
     )
 )
 @Composable
+@ComposableOpenTarget(-1)
 fun Window(
     visible: Boolean = true,
     onPreviewKeyEvent: (KeyEvent) -> Boolean = { false },
@@ -498,12 +588,31 @@ interface FrameWindowScope : WindowScope {
 }
 
 /**
+ * Receiver scope for [singleWindowApplication].
+ */
+@Stable
+interface SingleWindowApplicationScope: ApplicationScope, FrameWindowScope
+
+@Composable
+private fun SingleWindowApplicationScope(
+    applicationScope: ApplicationScope,
+    windowScope: FrameWindowScope
+): SingleWindowApplicationScope {
+    return remember(applicationScope, windowScope) {
+        object : SingleWindowApplicationScope,
+            ApplicationScope by applicationScope,
+            FrameWindowScope by windowScope {}
+    }
+}
+
+/**
  * Composes menu bar on the top of the window
  *
  * @param content content of the menu bar (list of menus)
  */
 @Composable
-fun FrameWindowScope.MenuBar(content: @Composable MenuBarScope.() -> Unit) {
+@ComposableOpenTarget(-1)
+fun FrameWindowScope.MenuBar(content: @Composable @MenuComposable MenuBarScope.() -> Unit) {
     val parentComposition = rememberCompositionContext()
 
     DisposableEffect(Unit) {

@@ -18,11 +18,16 @@ package androidx.compose.ui.window
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
+import androidx.compose.material.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.testutils.assertPixels
 import androidx.compose.ui.DialogState
 import androidx.compose.ui.FillBox
 import androidx.compose.ui.Modifier
@@ -30,20 +35,27 @@ import androidx.compose.ui.assertReceived
 import androidx.compose.ui.assertReceivedLast
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerButton
 import androidx.compose.ui.input.pointer.PointerButtons
 import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.scene.Content
+import androidx.compose.ui.scene.rememberComposeSceneLayer
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.InternalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertPositionInRootIsEqualTo
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.runInternalSkikoComposeUiTest
+import androidx.compose.ui.test.v2.runInternalSkikoComposeUiTest
 import androidx.compose.ui.test.runSkikoComposeUiTest
 import androidx.compose.ui.touch
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.navigationevent.DirectNavigationEventInput
+import androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.fail
 import kotlinx.coroutines.delay
@@ -229,9 +241,7 @@ class DialogTest {
 
     @OptIn(InternalTestApi::class)
     @Test
-    fun dialogCompositionSubscribesToStateChangesImmediately() = runInternalSkikoComposeUiTest(
-        coroutineDispatcher = StandardTestDispatcher()
-    ) {
+    fun dialogCompositionSubscribesToStateChangesImmediately() = runInternalSkikoComposeUiTest {
         // https://github.com/JetBrains/compose-multiplatform/issues/4609
         var showDialog by mutableStateOf(false)
         var lastValueInComposition: Int? = null
@@ -259,5 +269,128 @@ class DialogTest {
         waitForIdle()
         mainClock.advanceTimeBy(1000)
         assertEquals(2, lastValueInComposition)
+    }
+
+    @Test
+    fun checkUpdatedDismissCallbackInDialog() = runSkikoComposeUiTest(
+        size = Size(100f, 100f)
+    ) {
+        val eventList = mutableListOf<Int>()
+        val closeHandler1: () -> Unit = { eventList.add(1) }
+        val closeHandler2: () -> Unit = { eventList.add(2) }
+        var useSecondHandler by mutableStateOf(false)
+
+        val navEventInput = DirectNavigationEventInput()
+
+        setContent {
+            val owner = LocalNavigationEventDispatcherOwner.current
+            LaunchedEffect(owner) {
+                owner?.navigationEventDispatcher?.addInput(navEventInput)
+            }
+            Dialog(
+                onDismissRequest =
+                    if (useSecondHandler) closeHandler2
+                    else closeHandler1
+                ,
+                properties = DialogProperties(),
+                content = { }
+            )
+        }
+
+        navEventInput.backCompleted()
+        assertContentEquals(listOf(1), eventList)
+
+        navEventInput.backCompleted()
+        assertContentEquals(listOf(1, 1), eventList)
+
+        useSecondHandler = true
+        waitForIdle()
+
+        navEventInput.backCompleted()
+        assertContentEquals(listOf(1, 1, 2), eventList)
+
+        useSecondHandler = false
+        waitForIdle()
+
+        navEventInput.backCompleted()
+        assertContentEquals(listOf(1, 1, 2, 1), eventList)
+    }
+
+    @Test
+    fun testComposeSceneLayerSetContent() = runSkikoComposeUiTest {
+        var useContent2 by mutableStateOf(false)
+
+        setContent {
+            val content1 = @Composable {
+                Box(Modifier.size(200.dp).testTag("content1"))
+            }
+            val content2 = @Composable {
+                Box(Modifier.size(200.dp).testTag("content2"))
+            }
+
+            val layer = rememberComposeSceneLayer()
+            layer.Content(if (useContent2) content2 else content1)
+            DisposableEffect(Unit) {
+                onDispose {
+                    layer.close()
+                }
+            }
+        }
+
+        onNodeWithTag("content1").assertIsDisplayed()
+        onNodeWithTag("content2").assertDoesNotExist()
+
+        useContent2 = true
+        waitForIdle()
+
+        onNodeWithTag("content1").assertDoesNotExist()
+        onNodeWithTag("content2").assertIsDisplayed()
+    }
+
+    @Test
+    fun testDialogScrimColorChange() = runSkikoComposeUiTest(
+        size = Size(100f, 100f)
+    ) {
+        val scrimColor = mutableStateOf(Color.Red)
+        setContent {
+            Dialog(
+                onDismissRequest = {},
+                properties = DialogProperties(scrimColor = scrimColor.value)
+            ) {}
+        }
+
+        captureToImage().assertPixels { Color.Red }
+
+        scrimColor.value = Color.Blue
+        waitForIdle()
+
+        captureToImage().assertPixels { Color.Blue }
+    }
+
+    @Test
+    fun testMovableContentWithDialogAnimation_noCrash() = runSkikoComposeUiTest(
+        size = Size(100f, 100f)
+    ) {
+        val text = mutableStateOf("Hello")
+        val content = movableContentOf() { Text(text.value) }
+        val showDialog = mutableStateOf(true)
+        setContent {
+            if (showDialog.value) {
+                Dialog(
+                    onDismissRequest = {},
+                    properties = DialogProperties(animateTransition = true)
+                ) {
+                    content()
+                }
+            } else {
+                content()
+            }
+        }
+
+        waitForIdle()
+        showDialog.value = false
+        waitForIdle()
+
+        // If not crash then test passed
     }
 }

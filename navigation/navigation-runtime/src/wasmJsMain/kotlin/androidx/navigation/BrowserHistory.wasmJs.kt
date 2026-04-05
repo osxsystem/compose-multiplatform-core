@@ -22,12 +22,13 @@ import org.w3c.dom.Window
  * Binds the browser window state to the given navigation controller.
  *
  * If `getBackStackEntryRoute` is null, then:
- *  1) if a browser url contains a destination route on a start then navigates to destination
- *  2) if a user puts a new destination route to the browser address field then navigates to the new destination
+ * 1) if a browser url contains a destination route on a start then navigates to destination
+ * 2) if a user puts a new destination route to the browser address field then navigates to the new
+ *    destination
  *
- * If there is a custom `getBackStackEntryRoute` implementation,
- * then we don't have a knowledge how to parse urls to support direct navigation via browser address input.
- * In that case, it should be done on the app's side:
+ * If there is a custom `getBackStackEntryRoute` implementation, then we don't have a knowledge how
+ * to parse urls to support direct navigation via browser address input. In that case, it should be
+ * done on the app's side:
  * ```
  * window.addEventListener("popstate") { event ->
  *     event as PopStateEvent
@@ -39,14 +40,18 @@ import org.w3c.dom.Window
  * ```
  *
  * @param navController The [NavController] instance to bind to browser window navigation.
- * @param getBackStackEntryRoute An optional function that returns the route to show for a given [NavBackStackEntry].
+ * @param getBackStackEntryRoute An optional function that returns the route to show for a given
+ *   [NavBackStackEntry].
  */
 @ExperimentalBrowserHistoryApi
 @Suppress("UnusedReceiverParameter")
-@Deprecated(message = "Use bindToBrowserNavigation", replaceWith = ReplaceWith("navController.bindToBrowserNavigation(getBackStackEntryRoute)"))
+@Deprecated(
+    message = "Use bindToBrowserNavigation",
+    replaceWith = ReplaceWith("navController.bindToBrowserNavigation(getBackStackEntryRoute)"),
+)
 public suspend fun Window.bindToNavigation(
     navController: NavController,
-    getBackStackEntryRoute: ((entry: NavBackStackEntry) -> String)? = null
+    getBackStackEntryRoute: ((entry: NavBackStackEntry) -> String)? = null,
 ) {
     navController.bindToBrowserNavigation(getBackStackEntryRoute)
 }

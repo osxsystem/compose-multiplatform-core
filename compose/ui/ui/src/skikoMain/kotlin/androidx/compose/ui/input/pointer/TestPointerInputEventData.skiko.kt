@@ -43,6 +43,8 @@ class TestPointerInputEventData(
             pressure = 1.0f,
             PointerType.Mouse,
             historical = listOf(),
-            originalEventPosition = position
+            originalEventPosition = position,
+            scaleGestureFactor = 1f,
+            panGestureOffset = Offset.Zero,
         )
 }

@@ -38,6 +38,7 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerInputEvent
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.rotary.RotaryScrollEvent
+import androidx.compose.ui.node.InternalCoreApi
 import androidx.compose.ui.node.RootNodeOwner
 import androidx.compose.ui.platform.PlatformContext
 import androidx.compose.ui.platform.setContent
@@ -87,7 +88,7 @@ fun CanvasLayersComposeScene(
     size: IntSize? = null,
     // TODO: Remove `Dispatchers.Unconfined` as a default
     coroutineContext: CoroutineContext = Dispatchers.Unconfined,
-    platformContext: PlatformContext = PlatformContext.Empty,
+    platformContext: PlatformContext = PlatformContext.Empty(),
     invalidate: () -> Unit = {},
 ): ComposeScene = CanvasLayersComposeSceneImpl(
     density = density,
@@ -160,7 +161,7 @@ private class CanvasLayersComposeSceneImpl(
     }
     private val _ownersCopyCache = CopiedList {
         it.add(mainOwner)
-        for (layer in layers) {
+        layers.fastForEach { layer ->
             it.add(layer.owner)
         }
     }
@@ -239,7 +240,15 @@ private class CanvasLayersComposeSceneImpl(
             PointerEventType.Move -> processMove(event)
             PointerEventType.Enter -> processMove(event)
             PointerEventType.Exit -> processMove(event)
-            PointerEventType.Scroll -> processScroll(event)
+            PointerEventType.Scroll -> processHoveredEvent(event)
+            PointerEventType.PanStart,
+            PointerEventType.PanMove,
+            PointerEventType.PanEnd -> processHoveredEvent(event)
+            PointerEventType.ScaleStart,
+            PointerEventType.ScaleChange,
+            PointerEventType.ScaleEnd -> processHoveredEvent(event)
+            PointerEventType.Unknown ->
+                return processUnknownEvent(event)  // We don't want any side effects from it
             else -> PointerEventResult(anyMovementConsumed = false)
         }
 
@@ -273,6 +282,13 @@ private class CanvasLayersComposeSceneImpl(
         forEachOwner { it.draw(canvas) }
     }
 
+    override var showLayoutBounds: Boolean = false
+        @OptIn(InternalCoreApi::class)
+        set(value) {
+            field = value
+            forEachOwner { it.owner.showLayoutBounds = value }
+        }
+
     /**
      * Find hovered owner for position of first pointer.
      */
@@ -291,7 +307,7 @@ private class CanvasLayersComposeSceneImpl(
         if (owner == mainOwner) {
             return false
         }
-        for (layer in layers) {
+        layers.fastForEach { layer ->
             if (layer == focusedLayer) {
                 return true
             }
@@ -408,12 +424,22 @@ private class CanvasLayersComposeSceneImpl(
         return lastHoverOwnerResult.merging(ownerResult)
     }
 
-    private fun processScroll(event: PointerInputEvent): PointerEventResult {
+    private fun processHoveredEvent(event: PointerInputEvent): PointerEventResult {
         val owner = hoveredOwner(event)
         return if (isInteractive(owner)) {
             owner.onPointerInput(event)
         } else {
             PointerEventResult(anyMovementConsumed = false)
+        }
+    }
+
+    private fun processUnknownEvent(event: PointerInputEvent): PointerEventResult {
+        val gestureOwner = gestureOwner
+        @Suppress("IfThenToElvis")
+        return if (gestureOwner != null) {
+            gestureOwner.onPointerInput(event)
+        } else {
+            processHoveredEvent(event)
         }
     }
 
@@ -500,7 +526,7 @@ private class CanvasLayersComposeSceneImpl(
                  * Popup/Dialog shouldn't delegate focus to the parent.
                  */
                 override val parentFocusManager: FocusManager
-                    get() = PlatformContext.Empty.parentFocusManager
+                    get() = PlatformContext.EmptyFocusManager
 
                 // TODO: Figure out why real requestFocus is required
                 //  even with empty parentFocusManager
@@ -560,6 +586,8 @@ private class CanvasLayersComposeSceneImpl(
         private var onKeyEvent: ((KeyEvent) -> Boolean)? = null
 
         init {
+            @OptIn(InternalCoreApi::class)
+            owner.owner.showLayoutBounds = showLayoutBounds
             attachLayer(this)
         }
 

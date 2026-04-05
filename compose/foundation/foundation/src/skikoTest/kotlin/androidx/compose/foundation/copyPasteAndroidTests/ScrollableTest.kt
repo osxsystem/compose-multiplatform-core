@@ -20,6 +20,7 @@ import androidx.compose.animation.core.DecayAnimationSpec
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.rememberSplineBasedDecay
+import androidx.compose.foundation.ComposeFoundationFlags.isDelayPressesUsingGestureConsumptionEnabled
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.assertModifierIsPure
@@ -81,6 +82,7 @@ import androidx.compose.runtime.currentComposer
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -705,9 +707,6 @@ class ScrollableTest {
     }
 
     @Test
-    // FIXME: Chrome was not killed in 2000 ms, sending SIGKILL.
-    @IgnoreJsTarget
-    @IgnoreWasmTarget
     fun scrollable_nestedDiagonalScroll_mouseWheel_triggersOnAngle() = runComposeUiTest {
         var totalVerticalScroll = 0f
         var totalHorizontalScroll = 0f
@@ -747,6 +746,9 @@ class ScrollableTest {
         // mostly horizontal event triggered horizontal scrollable
         onRoot().performMouseInput { this.scroll(Offset(-100f, -50f)) }
 
+        // Here and below we call awaitIdle() before runOnIdle to avoid event loop blocking in the web.
+        // awaitIdle waits for idleness co-operatively, unlike waitForIdle (called inside runOnIdle)
+        awaitIdle()
         runOnIdle {
             assertThat(totalHorizontalScroll).isGreaterThan(0)
             assertThat(totalVerticalScroll).isZero()
@@ -758,6 +760,7 @@ class ScrollableTest {
         // mostly vertical event triggered vertical scrollable
         onRoot().performMouseInput { this.scroll(Offset(-10f, -50f)) }
 
+        awaitIdle()
         runOnIdle {
             assertThat(totalVerticalScroll).isGreaterThan(0)
             assertThat(totalHorizontalScroll).isZero()
@@ -773,6 +776,7 @@ class ScrollableTest {
             this.scroll(Offset(-50f, -10f))
         }
 
+        awaitIdle()
         runOnIdle {
             assertThat(totalVerticalScroll).isGreaterThan(0)
             assertThat(totalHorizontalScroll).isZero()
@@ -784,10 +788,11 @@ class ScrollableTest {
         // started vertical, waited, changed to horizontal means we have a new scrolling direction.
         onRoot().performMouseInput { this.scroll(Offset(-10f, -50f)) }
 
-        waitForIdle()
+        awaitIdle()
 
         onRoot().performMouseInput { this.scroll(Offset(-50f, -10f)) }
 
+        awaitIdle()
         runOnIdle {
             assertThat(totalVerticalScroll).isGreaterThan(0)
             assertThat(totalHorizontalScroll).isGreaterThan(0)
@@ -1490,7 +1495,6 @@ class ScrollableTest {
     }
 
     @Test
-    @IgnoreIosTarget // https://youtrack.jetbrains.com/issue/CMP-8401
     fun scrollable_nestedFling() = runComposeUiTest {
         var innerDrag = 0f
         var outerDrag = 0f
@@ -1989,6 +1993,7 @@ class ScrollableTest {
         onNodeWithTag("childScrollable").performTouchInput {
             down(centerLeft)
             moveBy(Offset(100f, 0f))
+            move(100)
             up()
         }
 
@@ -2405,6 +2410,7 @@ class ScrollableTest {
         onNodeWithTag(scrollableBoxTag).performTouchInput {
             down(this.center)
             moveBy(Offset(115f, 0f))
+            move(100)
             up()
         }
         assertThat(flingCalled).isEqualTo(1)
@@ -2413,7 +2419,6 @@ class ScrollableTest {
     }
 
     @Test
-    @IgnoreIosTarget // https://youtrack.jetbrains.com/issue/CMP-8401
     fun scrollable_flingBehaviourCalled() = runComposeUiTest {
         var total = 0f
         val controller =
@@ -2448,7 +2453,6 @@ class ScrollableTest {
     }
 
     @Test
-    @IgnoreIosTarget // https://youtrack.jetbrains.com/issue/CMP-8401
     fun scrollable_flingBehaviourCalled_reversed() = runComposeUiTest {
         var total = 0f
         val controller =
@@ -2574,6 +2578,7 @@ class ScrollableTest {
 
     @Test
     fun scrollable_setsModifierLocalScrollableContainer() = runComposeUiTest {
+        if (isDelayPressesUsingGestureConsumptionEnabled) return@runComposeUiTest
         val controller = ScrollableState { it }
 
         var isOuterInScrollableContainer: Boolean? = null
@@ -2607,6 +2612,7 @@ class ScrollableTest {
 
     @Test
     fun scrollable_setsModifierLocalScrollableContainer_scrollDisabled() = runComposeUiTest {
+        if (isDelayPressesUsingGestureConsumptionEnabled) return@runComposeUiTest
         val controller = ScrollableState { it }
 
         var isOuterInScrollableContainer: Boolean? = null
@@ -2644,6 +2650,7 @@ class ScrollableTest {
 
     @Test
     fun scrollable_setsModifierLocalScrollableContainer_scrollUpdates() = runComposeUiTest {
+        if (isDelayPressesUsingGestureConsumptionEnabled) return@runComposeUiTest
         val controller = ScrollableState { it }
 
         var isInnerInScrollableContainer: Boolean? = null
@@ -2983,6 +2990,7 @@ class ScrollableTest {
         onRoot().performTouchInput {
             down(center)
             moveBy(Offset(scrollDelta, 0f))
+            move(100)
             up()
         }
 
@@ -3154,13 +3162,12 @@ class ScrollableTest {
     }
 
     @Test
-    @IgnoreIosTarget // https://youtrack.jetbrains.com/issue/CMP-8401
     fun disableSystemAnimations_defaultFlingBehaviorShouldContinueToWork() = runComposeUiTest {
 
         val controller = ScrollableState { 0f }
         var defaultFlingBehavior: DefaultFlingBehavior? = null
         setScrollableContent {
-            defaultFlingBehavior = ScrollableDefaults.flingBehavior() as? DefaultFlingBehavior
+            defaultFlingBehavior = rememberDefaultFlingBehavior()
             Modifier.scrollable(
                 state = controller,
                 orientation = Orientation.Horizontal,
@@ -3410,7 +3417,7 @@ class ScrollableTest {
     }
 
     @Test
-    @IgnoreIosTarget // https://youtrack.jetbrains.com/issue/CMP-8401
+    @IgnoreIosTarget // Fling behavior on iOS does not use screen density
     fun onDensityChange_shouldUpdateFlingBehavior() = runComposeUiTest {
         var density by mutableStateOf(density)
         var flingDelta = 0f
@@ -3541,6 +3548,14 @@ class ScrollableTest {
 
         if (enableInitialFocus) {
             runOnIdle { assertThat(focusRequester.requestFocus()).isTrue() }
+        }
+    }
+
+    @Composable
+    private fun rememberDefaultFlingBehavior(): DefaultFlingBehavior {
+        val flingSpec = rememberSplineBasedDecay<Float>()
+        return remember(flingSpec) {
+            DefaultFlingBehavior(flingSpec)
         }
     }
 }

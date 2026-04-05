@@ -15,6 +15,7 @@
  */
 package androidx.compose.remote.core.operations;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.PaintContext;
@@ -33,6 +34,7 @@ import java.util.List;
  * Defines a path that clips a the subsequent drawing commands Use MatrixSave and MatrixRestore
  * commands to remove clip TODO allow id 0 to mean null?
  */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class ClipPath extends PaintOperation implements Serializable {
     private static final int OP_CODE = Operations.CLIP_PATH;
     private static final String CLASS_NAME = "ClipPath";
@@ -122,8 +124,8 @@ public class ClipPath extends PaintOperation implements Serializable {
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
         doc.operation("Canvas Operations", OP_CODE, CLASS_NAME)
-                .description("Intersect the current clip with the path")
-                .field(DocumentedOperation.INT, "id", "id of the path");
+                .description("Intersect the current clip with the specified path")
+                .field(DocumentedOperation.INT, "id", "The ID of the path to clip with");
     }
 
     @Override

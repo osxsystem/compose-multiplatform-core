@@ -23,7 +23,7 @@ import android.graphics.Color;
 
 import androidx.compose.remote.core.CoreDocument;
 import androidx.compose.remote.core.Operation;
-import androidx.compose.remote.core.Platform;
+import androidx.compose.remote.core.RcPlatformServices;
 import androidx.compose.remote.core.RemoteContext;
 import androidx.compose.remote.core.operations.Theme;
 import androidx.compose.remote.core.operations.layout.ClickModifierOperation;
@@ -41,10 +41,13 @@ import androidx.compose.remote.core.operations.layout.modifiers.HeightModifierOp
 import androidx.compose.remote.core.operations.layout.modifiers.ModifierOperation;
 import androidx.compose.remote.core.operations.layout.modifiers.WidthModifierOperation;
 import androidx.compose.remote.creation.RemoteComposeWriter;
+import androidx.compose.remote.creation.actions.Action;
 import androidx.compose.remote.creation.actions.HostAction;
+import androidx.compose.remote.creation.actions.ValueIntegerChange;
 import androidx.compose.remote.creation.modifiers.RecordingModifier;
 import androidx.compose.remote.creation.modifiers.RoundedRectShape;
-import androidx.compose.remote.creation.platform.AndroidxPlatformServices;
+import androidx.compose.remote.creation.platform.AndroidxRcPlatformServices;
+import androidx.compose.remote.player.core.RemoteDocument;
 import androidx.test.filters.SdkSuppress;
 
 import org.junit.Rule;
@@ -72,7 +75,7 @@ public class LayoutTest {
     int mTw = 1000;
     int mTh = 1000;
 
-    Platform mPlatform = new AndroidxPlatformServices();
+    RcPlatformServices mPlatform = new AndroidxRcPlatformServices();
 
     class SnapShot {
         float mTime = 0f;
@@ -135,8 +138,8 @@ public class LayoutTest {
     void baseTest(RemoteComposeWriter writer, int tw, int th) {
         byte[] buffer = writer.buffer();
         int bufferSize = writer.bufferSize();
-        RemoteComposeDocument doc =
-                new RemoteComposeDocument(new ByteArrayInputStream(buffer, 0, bufferSize));
+        RemoteDocument doc =
+                new RemoteDocument(new ByteArrayInputStream(buffer, 0, bufferSize));
 
         DebugPlayerContext debugContext = new DebugPlayerContext();
         debugContext.mWidth = tw;
@@ -158,6 +161,7 @@ public class LayoutTest {
 
     void writeToFile(String content, String fileName) {
         File file = new File(CtsTest.sAppContext.getFilesDir(), fileName + ".layout");
+        System.out.println("Write file to " + file.getPath());
         try {
             FileOutputStream fos = new FileOutputStream(file);
             OutputStreamWriter osw = new OutputStreamWriter(fos);
@@ -173,8 +177,8 @@ public class LayoutTest {
     void baseTestResize(RemoteComposeWriter writer, int tw1, int th1, int tw2, int th2) {
         byte[] buffer = writer.buffer();
         int bufferSize = writer.bufferSize();
-        RemoteComposeDocument doc =
-                new RemoteComposeDocument(new ByteArrayInputStream(buffer, 0, bufferSize));
+        RemoteDocument doc =
+                new RemoteDocument(new ByteArrayInputStream(buffer, 0, bufferSize));
 
         DebugPlayerContext debugContext = new DebugPlayerContext();
         debugContext.setAnimationEnabled(false);
@@ -287,6 +291,31 @@ public class LayoutTest {
         }
     }
 
+    class TestComponentClickNoInvalOperation extends TestComponentOperation {
+
+        TestComponentClickNoInvalOperation(int id) {
+            super(id);
+        }
+
+        @Override
+        public void apply(Component component) {
+            ArrayList<Operation> ops = component.getList();
+            for (int i = 0; i < ops.size(); i++) {
+                Operation op = ops.get(i);
+                if (op instanceof ComponentModifiers) {
+                    ArrayList<ModifierOperation> mods = ((ComponentModifiers) op).getList();
+                    for (int j = 0; j < mods.size(); j++) {
+                        ModifierOperation m = mods.get(j);
+                        if (m instanceof ClickModifierOperation) {
+                            ((ClickModifierOperation) m)
+                                    .onClick(mContext, mDocument, component, 10f, 10f);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     class TestComponentTouchDownOperation extends TestComponentOperation {
         float mX;
         float mY;
@@ -314,6 +343,35 @@ public class LayoutTest {
                 }
             }
             component.invalidateMeasure();
+        }
+    }
+
+    class TestComponentTouchDownNoInvalOperation extends TestComponentOperation {
+        float mX;
+        float mY;
+
+        TestComponentTouchDownNoInvalOperation(int id, float x, float y) {
+            super(id);
+            mX = x;
+            mY = y;
+        }
+
+        @Override
+        public void apply(Component component) {
+            ArrayList<Operation> ops = component.getList();
+            for (int i = 0; i < ops.size(); i++) {
+                Operation op = ops.get(i);
+                if (op instanceof ComponentModifiers) {
+                    ArrayList<ModifierOperation> mods = ((ComponentModifiers) op).getList();
+                    for (int j = 0; j < mods.size(); j++) {
+                        ModifierOperation m = mods.get(j);
+                        if (m instanceof TouchDownModifierOperation) {
+                            ((TouchDownModifierOperation) m)
+                                    .onTouchDown(mContext, mDocument, component, mX, mY);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -430,6 +488,21 @@ public class LayoutTest {
         }
     }
 
+    class TestComponentVisibility extends TestComponentOperation {
+        int mVisibilityCheck;
+
+        TestComponentVisibility(int id, int visibilityCheck) {
+            super(id);
+            mVisibilityCheck = visibilityCheck;
+        }
+
+        @Override
+        public void apply(Component component) {
+            assertEquals("for component " + component.getComponentId(),
+                    mVisibilityCheck, component.mVisibility);
+        }
+    }
+
     class TestRootNeedsMeasure extends TestComponentNeedsMeasure {
         TestRootNeedsMeasure(int id, boolean needsMeasureCheck) {
             super(id, needsMeasureCheck);
@@ -488,10 +561,20 @@ public class LayoutTest {
             int th1,
             ArrayList<TestComponentOperation> ops,
             ArrayList<TestComponentOperation> postPaintOps) {
+        return baseTestComponent(writer, tw1, th1, ops, postPaintOps, true);
+    }
+
+    RemoteContext baseTestComponent(
+            RemoteComposeWriter writer,
+            int tw1,
+            int th1,
+            ArrayList<TestComponentOperation> ops,
+            ArrayList<TestComponentOperation> postPaintOps,
+            boolean forceRepaint) {
         byte[] buffer = writer.buffer();
         int bufferSize = writer.bufferSize();
-        RemoteComposeDocument doc =
-                new RemoteComposeDocument(new ByteArrayInputStream(buffer, 0, bufferSize));
+        RemoteDocument doc =
+                new RemoteDocument(new ByteArrayInputStream(buffer, 0, bufferSize));
 
         DebugPlayerContext debugContext = new DebugPlayerContext();
         debugContext.setAnimationEnabled(false);
@@ -500,6 +583,7 @@ public class LayoutTest {
         debugContext.mHeight = th1;
         doc.initializeContext(debugContext);
         doc.paint(debugContext, Theme.UNSPECIFIED);
+        String resLayout1 = doc.getDocument().getRootLayoutComponent().displayHierarchy();
         for (TestComponentOperation op : ops) {
             Component component = doc.getComponent(op.getComponentId());
             assertTrue("no available component for " + op.getComponentId(), component != null);
@@ -507,7 +591,13 @@ public class LayoutTest {
             op.mDocument = doc.getDocument();
             op.apply(component);
         }
-        doc.paint(debugContext, Theme.UNSPECIFIED);
+        System.out.println("Test 1:\n" + resLayout1);
+        if (doc.needsRepaint() > 0 || forceRepaint) {
+            System.out.println("*** NEEDS REPAINT ***");
+            doc.paint(debugContext, Theme.UNSPECIFIED);
+        }
+        String resLayout2 = doc.getDocument().getRootLayoutComponent().displayHierarchy();
+        System.out.println("Test 2:\n" + resLayout2);
         for (TestComponentOperation op : postPaintOps) {
             Component component = doc.getComponent(op.getComponentId());
             assertTrue("no available component for " + op.getComponentId(), component != null);
@@ -515,7 +605,6 @@ public class LayoutTest {
             op.mDocument = doc.getDocument();
             op.apply(component);
         }
-
         String resLayout = doc.getDocument().getRootLayoutComponent().displayHierarchy();
 
         String testName = name.getMethodName();
@@ -526,6 +615,69 @@ public class LayoutTest {
             String expected = loadFileFromRaw(CtsTest.sAppContext, fileName);
             System.out.println("Found:\n" + resLayout);
             assertEquals("did not match ", expected, resLayout);
+        }
+        return debugContext;
+    }
+
+    RemoteContext paintTestComponent(
+            RemoteComposeWriter writer,
+            int tw1,
+            int th1,
+            ArrayList<TestComponentOperation> ops,
+            ArrayList<TestComponentOperation> postPaintOps,
+            boolean forceRepaint) {
+        byte[] buffer = writer.buffer();
+        int bufferSize = writer.bufferSize();
+        RemoteDocument doc =
+                new RemoteDocument(new ByteArrayInputStream(buffer, 0, bufferSize));
+
+        DebugPlayerContext debugContext = new DebugPlayerContext();
+        debugContext.setAnimationEnabled(false);
+        debugContext.setDensity(1f);
+        debugContext.mWidth = tw1;
+        debugContext.mHeight = th1;
+        doc.initializeContext(debugContext);
+        doc.paint(debugContext, Theme.UNSPECIFIED);
+        String resLayout1 = doc.getDocument().getRootLayoutComponent().displayHierarchy();
+        String paintInstructions = debugContext.getTestResults();
+        for (TestComponentOperation op : ops) {
+            Component component = doc.getComponent(op.getComponentId());
+            assertTrue("no available component for " + op.getComponentId(), component != null);
+            op.mContext = debugContext;
+            op.mDocument = doc.getDocument();
+            op.apply(component);
+        }
+        System.out.println("Test 1:\n" + resLayout1);
+        if (doc.needsRepaint() > 0 || forceRepaint) {
+            System.out.println("*** NEEDS REPAINT ***");
+            debugContext.clearResults();
+            doc.paint(debugContext, Theme.UNSPECIFIED);
+            paintInstructions = debugContext.getTestResults();
+        }
+        String resLayout2 = doc.getDocument().getRootLayoutComponent().displayHierarchy();
+        System.out.println("Test 2:\n" + resLayout2);
+        for (TestComponentOperation op : postPaintOps) {
+            Component component = doc.getComponent(op.getComponentId());
+            assertTrue("no available component for " + op.getComponentId(), component != null);
+            op.mContext = debugContext;
+            op.mDocument = doc.getDocument();
+            op.apply(component);
+        }
+        String resLayout = doc.getDocument().getRootLayoutComponent().displayHierarchy();
+
+        String testName = name.getMethodName();
+        String fileName = "layout_" + testName.substring("test".length()).toLowerCase();
+        String fileNamePaint = "paint_" + testName.substring("test".length()).toLowerCase();
+        if (GENERATE_GOLD_FILES) {
+            writeToFile(resLayout, fileName);
+            writeToFile(paintInstructions, fileNamePaint);
+        } else {
+            String expected = loadFileFromRaw(CtsTest.sAppContext, fileName);
+            System.out.println("Found:\n" + resLayout);
+            assertEquals("did not match ", expected, resLayout);
+            expected = loadFileFromRaw(CtsTest.sAppContext, fileNamePaint);
+            System.out.println("Found:\n" + paintInstructions);
+            assertEquals("did not match ", expected, paintInstructions);
         }
         return debugContext;
     }
@@ -568,8 +720,8 @@ public class LayoutTest {
 
         byte[] buffer = writer.buffer();
         int bufferSize = writer.bufferSize();
-        RemoteComposeDocument doc =
-                new RemoteComposeDocument(new ByteArrayInputStream(buffer, 0, bufferSize));
+        RemoteDocument doc =
+                new RemoteDocument(new ByteArrayInputStream(buffer, 0, bufferSize));
 
         DebugPlayerContext debugContext = new DebugPlayerContext();
         debugContext.setAnimationEnabled(animationEnabled);
@@ -3333,5 +3485,375 @@ public class LayoutTest {
         ops.add(new TestComponentTouchCancelOperation(2, 50f, 50f));
         DebugPlayerContext context = (DebugPlayerContext) baseTestComponent(writer, 400, 400, ops);
         assertEquals("Test click action", actionIdCancel, context.getLastAction());
+    }
+
+    @Test
+    public void testClickVisibilityChange1() {
+        RemoteComposeWriter writer = new RemoteComposeWriter(400, 400, "Layout", mPlatform);
+        writer.root(
+                () -> {
+                    long visibilityId = writer.addInteger(Component.Visibility.GONE);
+                    writer.row(
+                            new RecordingModifier()
+                                    .componentId(1)
+                                    .fillMaxHeight()
+                                    .background(Color.YELLOW)
+                                    .padding(8),
+                            RowLayout.CENTER,
+                            RowLayout.TOP,
+                            () -> {
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(2)
+                                                .size(200)
+                                                .visibility((int) visibilityId)
+                                                .background(Color.GREEN));
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(3)
+                                                .size(100)
+                                                .background(Color.RED)
+                                                .onClick(new ValueIntegerChange((int) visibilityId,
+                                                        Component.Visibility.VISIBLE)));
+                            });
+                });
+        ArrayList<TestComponentOperation> ops = new ArrayList<>();
+        ops.add(new TestComponentVisibility(2, Component.Visibility.GONE));
+        ops.add(new TestComponentClickNoInvalOperation(3));
+        ArrayList<TestComponentOperation> ops2 = new ArrayList<>();
+        ops2.add(new TestComponentVisibility(2, Component.Visibility.VISIBLE));
+        baseTestComponent(writer, 400, 400, ops, ops2);
+    }
+
+    @Test
+    public void testClickVisibilityChange2() {
+        RemoteComposeWriter writer = new RemoteComposeWriter(400, 400, "Layout", mPlatform);
+        writer.root(
+                () -> {
+                    long visibilityId = writer.addInteger(Component.Visibility.VISIBLE);
+                    writer.row(
+                            new RecordingModifier()
+                                    .componentId(1)
+                                    .fillMaxHeight()
+                                    .background(Color.YELLOW)
+                                    .padding(8),
+                            RowLayout.CENTER,
+                            RowLayout.TOP,
+                            () -> {
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(2)
+                                                .size(200)
+                                                .visibility((int) visibilityId)
+                                                .background(Color.GREEN));
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(3)
+                                                .size(100)
+                                                .background(Color.RED)
+                                                .onClick(new ValueIntegerChange((int) visibilityId,
+                                                        Component.Visibility.GONE)));
+                            });
+                });
+        ArrayList<TestComponentOperation> ops = new ArrayList<>();
+        ops.add(new TestComponentVisibility(2, Component.Visibility.VISIBLE));
+        ops.add(new TestComponentClickNoInvalOperation(3));
+        ArrayList<TestComponentOperation> ops2 = new ArrayList<>();
+        ops2.add(new TestComponentVisibility(2, Component.Visibility.GONE));
+        baseTestComponent(writer, 400, 400, ops, ops2);
+    }
+
+
+    @Test
+    public void testClickVisibilityChange3() {
+        RemoteComposeWriter writer = new RemoteComposeWriter(400, 400, "Layout", mPlatform);
+        writer.root(
+                () -> {
+                    long visibilityId = writer.addInteger(Component.Visibility.VISIBLE);
+                    writer.row(
+                            new RecordingModifier()
+                                    .componentId(1)
+                                    .fillMaxHeight()
+                                    .background(Color.YELLOW)
+                                    .padding(8),
+                            RowLayout.CENTER,
+                            RowLayout.TOP,
+                            () -> {
+                                writer.row(
+                                        new RecordingModifier()
+                                                .componentId(4)
+                                                .padding(8),
+                                        RowLayout.CENTER, RowLayout.CENTER,
+                                        () -> {
+                                            writer.box(
+                                                    new RecordingModifier()
+                                                            .componentId(2)
+                                                            .size(200)
+                                                            .visibility((int) visibilityId)
+                                                            .background(Color.GREEN));
+                                        });
+
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(3)
+                                                .size(100)
+                                                .background(Color.RED)
+                                                .onClick(new ValueIntegerChange((int) visibilityId,
+                                                        Component.Visibility.GONE)));
+                            });
+                });
+        ArrayList<TestComponentOperation> ops = new ArrayList<>();
+        ops.add(new TestComponentVisibility(2, Component.Visibility.VISIBLE));
+        ops.add(new TestComponentClickNoInvalOperation(3));
+        ArrayList<TestComponentOperation> ops2 = new ArrayList<>();
+        ops2.add(new TestComponentVisibility(2, Component.Visibility.GONE));
+        baseTestComponent(writer, 400, 400, ops, ops2);
+    }
+
+    @Test
+    public void testClickVisibilityChange4() {
+        RemoteComposeWriter writer = new RemoteComposeWriter(400, 400, "Layout", mPlatform);
+        writer.root(
+                () -> {
+                    long visibilityId = writer.addInteger(Component.Visibility.GONE);
+                    writer.row(
+                            new RecordingModifier()
+                                    .componentId(1)
+                                    .fillMaxHeight()
+                                    .background(Color.YELLOW)
+                                    .padding(8),
+                            RowLayout.CENTER,
+                            RowLayout.TOP,
+                            () -> {
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(3)
+                                                .size(100)
+                                                .background(Color.RED)
+                                                .onClick(new ValueIntegerChange((int) visibilityId,
+                                                        Component.Visibility.VISIBLE)));
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(2)
+                                                .size(200)
+                                                .visibility((int) visibilityId)
+                                                .background(Color.GREEN));
+                            });
+                });
+        ArrayList<TestComponentOperation> ops = new ArrayList<>();
+        ops.add(new TestComponentVisibility(2, Component.Visibility.GONE));
+        ops.add(new TestComponentClickNoInvalOperation(3));
+        ArrayList<TestComponentOperation> ops2 = new ArrayList<>();
+        ops2.add(new TestComponentVisibility(2, Component.Visibility.VISIBLE));
+        baseTestComponent(writer, 400, 400, ops, ops2);
+    }
+
+    @Test
+    public void testClickVisibilityChange5() {
+        RemoteComposeWriter writer = new RemoteComposeWriter(400, 400, "Layout", mPlatform);
+        writer.root(
+                () -> {
+                    long visibilityId = writer.addInteger(Component.Visibility.GONE);
+                    writer.addDebugMessage("Start column");
+                    writer.column(
+                            new RecordingModifier()
+                                    .componentId(1)
+                                    .fillMaxSize()
+                                    .background(Color.YELLOW)
+                                    .padding(8),
+                            RowLayout.CENTER,
+                            RowLayout.TOP,
+                            () -> {
+                                writer.addDebugMessage("Start Box 1");
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(3)
+                                                .size(100)
+                                                .background(Color.RED)
+                                                .onClick(new ValueIntegerChange((int) visibilityId,
+                                                        Component.Visibility.VISIBLE)));
+                                writer.addDebugMessage("End Box 1");
+                                writer.addDebugMessage("Start Box 2");
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(2)
+                                                .size(50)
+                                                .visibility((int) visibilityId)
+                                                .background(Color.GREEN));
+                                writer.addDebugMessage("End Box 2");
+                            });
+                    writer.addDebugMessage("End Row");
+                });
+        ArrayList<TestComponentOperation> ops = new ArrayList<>();
+        ops.add(new TestComponentVisibility(2, Component.Visibility.GONE));
+        ops.add(new TestComponentClickNoInvalOperation(3));
+        ArrayList<TestComponentOperation> ops2 = new ArrayList<>();
+        ops2.add(new TestComponentVisibility(2, Component.Visibility.VISIBLE));
+        paintTestComponent(writer, 400, 400, ops, ops2, false);
+    }
+
+    @Test
+    public void testTouchDownVisibilityChange1() {
+        RemoteComposeWriter writer = new RemoteComposeWriter(400, 400, "Layout", mPlatform);
+        writer.root(
+                () -> {
+                    long visibilityId = writer.addInteger(Component.Visibility.GONE);
+                    writer.row(
+                            new RecordingModifier()
+                                    .componentId(1)
+                                    .fillMaxHeight()
+                                    .background(Color.YELLOW)
+                                    .padding(8),
+                            RowLayout.CENTER,
+                            RowLayout.TOP,
+                            () -> {
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(2)
+                                                .size(200)
+                                                .visibility((int) visibilityId)
+                                                .background(Color.GREEN));
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(3)
+                                                .size(100)
+                                                .background(Color.RED)
+                                                .onTouchDown(new ValueIntegerChange(
+                                                        (int) visibilityId,
+                                                        Component.Visibility.VISIBLE)));
+                            });
+                });
+        ArrayList<TestComponentOperation> ops = new ArrayList<>();
+        ops.add(new TestComponentVisibility(2, Component.Visibility.GONE));
+        //ops.add(new TestComponentClickNoInvalOperation(3));
+        ops.add(new TestComponentTouchDownNoInvalOperation(3, 50, 50));
+        ArrayList<TestComponentOperation> ops2 = new ArrayList<>();
+        ops2.add(new TestComponentVisibility(2, Component.Visibility.VISIBLE));
+        baseTestComponent(writer, 400, 400, ops, ops2);
+    }
+
+    @Test
+    public void testTouchDownVisibilityChange2() {
+        RemoteComposeWriter writer = new RemoteComposeWriter(400, 400, "Layout", mPlatform);
+        writer.root(
+                () -> {
+                    long visibilityId = writer.addInteger(Component.Visibility.VISIBLE);
+                    writer.row(
+                            new RecordingModifier()
+                                    .componentId(1)
+                                    .fillMaxHeight()
+                                    .background(Color.YELLOW)
+                                    .padding(8),
+                            RowLayout.CENTER,
+                            RowLayout.TOP,
+                            () -> {
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(2)
+                                                .size(200)
+                                                .visibility((int) visibilityId)
+                                                .background(Color.GREEN));
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(3)
+                                                .size(100)
+                                                .background(Color.RED)
+                                                .onTouchDown(new ValueIntegerChange(
+                                                        (int) visibilityId,
+                                                        Component.Visibility.GONE)));
+                            });
+                });
+        ArrayList<TestComponentOperation> ops = new ArrayList<>();
+        ops.add(new TestComponentVisibility(2, Component.Visibility.VISIBLE));
+        ops.add(new TestComponentTouchDownNoInvalOperation(3, 50, 50));
+        ArrayList<TestComponentOperation> ops2 = new ArrayList<>();
+        ops2.add(new TestComponentVisibility(2, Component.Visibility.GONE));
+        baseTestComponent(writer, 400, 400, ops, ops2);
+    }
+
+    @Test
+    public void testOnCanvasActionsVisibilityChange1() {
+        RemoteComposeWriter writer = new RemoteComposeWriter(400, 400, "Layout", mPlatform);
+        writer.root(
+                () -> {
+                    long visibilityId = writer.addInteger(Component.Visibility.VISIBLE);
+                    writer.row(
+                            new RecordingModifier()
+                                    .componentId(1)
+                                    .fillMaxHeight()
+                                    .background(Color.YELLOW)
+                                    .padding(8),
+                            RowLayout.CENTER,
+                            RowLayout.TOP,
+                            () -> {
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(2)
+                                                .size(200)
+                                                .visibility((int) visibilityId)
+                                                .background(Color.GREEN));
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(3)
+                                                .size(100)
+                                                .background(Color.RED));
+
+                                writer.canvas(new RecordingModifier().size(1), () -> {
+                                    writer.startRunActions();
+                                    Action action = new ValueIntegerChange((int) visibilityId,
+                                            Component.Visibility.GONE);
+                                    action.write(writer);
+                                    writer.endRunActions();
+                                });
+                            });
+                });
+        ArrayList<TestComponentOperation> ops = new ArrayList<>();
+        ops.add(new TestComponentVisibility(2, Component.Visibility.VISIBLE));
+        ArrayList<TestComponentOperation> ops2 = new ArrayList<>();
+        ops2.add(new TestComponentVisibility(2, Component.Visibility.GONE));
+        baseTestComponent(writer, 400, 400, ops, ops2);
+    }
+
+    @Test
+    public void testOnCanvasActionsVisibilityChange2() {
+        RemoteComposeWriter writer = new RemoteComposeWriter(400, 400, "Layout", mPlatform);
+        writer.root(
+                () -> {
+                    long visibilityId = writer.addInteger(Component.Visibility.GONE);
+                    writer.row(
+                            new RecordingModifier()
+                                    .componentId(1)
+                                    .fillMaxHeight()
+                                    .background(Color.YELLOW)
+                                    .padding(8),
+                            RowLayout.CENTER,
+                            RowLayout.TOP,
+                            () -> {
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(2)
+                                                .size(200)
+                                                .visibility((int) visibilityId)
+                                                .background(Color.GREEN));
+                                writer.box(
+                                        new RecordingModifier()
+                                                .componentId(3)
+                                                .size(100)
+                                                .background(Color.RED));
+
+                                writer.canvas(new RecordingModifier().size(1), () -> {
+                                    writer.startRunActions();
+                                    Action action = new ValueIntegerChange((int) visibilityId,
+                                            Component.Visibility.VISIBLE);
+                                    action.write(writer);
+                                    writer.endRunActions();
+                                });
+                            });
+                });
+        ArrayList<TestComponentOperation> ops = new ArrayList<>();
+        ops.add(new TestComponentVisibility(2, Component.Visibility.GONE));
+        ArrayList<TestComponentOperation> ops2 = new ArrayList<>();
+        ops2.add(new TestComponentVisibility(2, Component.Visibility.VISIBLE));
+        baseTestComponent(writer, 400, 400, ops, ops2);
     }
 }

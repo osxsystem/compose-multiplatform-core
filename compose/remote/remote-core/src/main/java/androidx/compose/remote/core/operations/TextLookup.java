@@ -18,6 +18,7 @@ package androidx.compose.remote.core.operations;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.FLOAT;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.INT;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteContext;
@@ -36,6 +37,7 @@ import java.util.List;
  * [command][textId][before,after][flags] before and after define number of digits before and after
  * the decimal point
  */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class TextLookup extends Operation implements VariableSupport, Serializable {
     private static final int OP_CODE = Operations.TEXT_LOOKUP;
     private static final String CLASS_NAME = "TextFromFloat";
@@ -134,11 +136,11 @@ public class TextLookup extends Operation implements VariableSupport, Serializab
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Expressions Operations", OP_CODE, CLASS_NAME)
-                .description("Look an array and turn into a text object")
-                .field(INT, "textId", "id of the text generated")
-                .field(FLOAT, "dataSet", "float pointer to the array/list to turn int a string")
-                .field(FLOAT, "index", "index of element to return");
+        doc.operation("Text Operations", OP_CODE, CLASS_NAME)
+                .description("Look up a string from a collection via index")
+                .field(INT, "textId", "The ID of the resulting text")
+                .field(INT, "dataSetId", "The ID of the string collection")
+                .field(FLOAT, "index", "The index of the string to retrieve");
     }
 
     @Override

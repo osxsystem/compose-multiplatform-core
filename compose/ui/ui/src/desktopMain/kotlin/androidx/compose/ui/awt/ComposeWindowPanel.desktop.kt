@@ -32,8 +32,11 @@ import java.awt.FocusTraversalPolicy
 import java.awt.Window
 import java.awt.event.MouseListener
 import java.awt.event.MouseMotionListener
-import java.awt.event.MouseWheelListener
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
+import org.jetbrains.skiko.DelicateSkikoApi
 import org.jetbrains.skiko.SkiaLayerAnalytics
+import org.jetbrains.skiko.transparentWindowBackgroundHack
 
 /**
  * A panel used as a main view in [ComposeWindow] and [ComposeDialog].
@@ -43,15 +46,17 @@ internal class ComposeWindowPanel(
     private val isUndecorated: () -> Boolean,
     skiaLayerAnalytics: SkiaLayerAnalytics,
     savedState: SavedState? = null,
+    coroutineContext: CoroutineContext = EmptyCoroutineContext,
 ) : JLayeredPaneWithTransparencyHack() {
     private var isDisposed = false
 
     // AWT can leak JFrame in some cases
-    // (see https://github.com/JetBrains/compose-jb/issues/1688),
+    // (see https://youtrack.jetbrains.com/issue/CMP-1688),
     // so we nullify bridge on dispose, to prevent keeping
     // big objects in memory (like the whole LayoutNode tree of the window)
     private var _composeContainer: ComposeContainer? = ComposeContainer(
         container = this,
+        isWindowLevel = true,
         skiaLayerAnalytics = skiaLayerAnalytics,
         window = window,
         windowContainer = this,
@@ -64,7 +69,8 @@ internal class ComposeWindowPanel(
         },
         // Swing graphics is not supposed to be used here.
         // TODO: Add isVsyncEnabled flag to ComposeWindowPanel constructor
-        renderSettings = RenderSettings.SkiaSurface()
+        renderSettings = RenderSettings.SkiaSurface(),
+        coroutineContext = coroutineContext
     )
     private val composeContainer
         get() = requireNotNull(_composeContainer) {
@@ -72,7 +78,6 @@ internal class ComposeWindowPanel(
         }
     private val contentComponent by composeContainer::contentComponent
 
-    val windowAccessible by composeContainer::accessible
     val windowContext by composeContainer::windowContext
     var rootForTestListener by composeContainer::rootForTestListener
     var fullscreen by composeContainer::fullscreen
@@ -81,6 +86,8 @@ internal class ComposeWindowPanel(
     val windowHandle by composeContainer::windowHandle
     val renderApi by composeContainer::renderApi
     val semanticsOwners by composeContainer::semanticsOwners
+
+    var isClearFocusOnMouseDownEnabled: Boolean by composeContainer::isClearFocusOnMouseDownEnabled
 
     var isWindowTransparent: Boolean = false
         set(value) {
@@ -92,7 +99,9 @@ internal class ComposeWindowPanel(
                 field = value
                 composeContainer.onWindowTransparencyChanged(value)
                 isOpaque = !value
-                window.background = getTransparentWindowBackground(value, renderApi)
+
+                @OptIn(DelicateSkikoApi::class)
+                window.background = if (value) transparentWindowBackgroundHack(renderApi) else null
             }
         }
 
@@ -168,6 +177,10 @@ internal class ComposeWindowPanel(
         composeContainer.onRenderApiChanged(action)
     }
 
+    fun renderImmediately() {
+        composeContainer.renderImmediately()
+    }
+
     // We need overridden listeners because we mix Swing and AWT components in the
     // org.jetbrains.skiko.SkiaLayer, they don't work well together.
     // TODO(demin): is it possible to fix that without overriding?
@@ -188,11 +201,11 @@ internal class ComposeWindowPanel(
         contentComponent.removeMouseMotionListener(listener)
     }
 
-    override fun addMouseWheelListener(listener: MouseWheelListener) {
-        contentComponent.addMouseWheelListener(listener)
-    }
-
-    override fun removeMouseWheelListener(listener: MouseWheelListener) {
-        contentComponent.removeMouseWheelListener(listener)
-    }
+    var showLayoutBounds: Boolean
+        get() {
+            return _composeContainer?.showLayoutBounds ?: false
+        }
+        set(value) {
+            _composeContainer?.showLayoutBounds = value
+        }
 }

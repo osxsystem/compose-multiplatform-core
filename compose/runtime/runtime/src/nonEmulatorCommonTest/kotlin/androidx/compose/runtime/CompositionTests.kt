@@ -18,6 +18,7 @@
 
 package androidx.compose.runtime
 
+import androidx.compose.runtime.composer.gapbuffer.expectError
 import androidx.compose.runtime.mock.Contact
 import androidx.compose.runtime.mock.ContactModel
 import androidx.compose.runtime.mock.Edit
@@ -49,7 +50,6 @@ import kotlin.coroutines.CoroutineContext
 import kotlin.math.min
 import kotlin.random.Random
 import kotlin.reflect.KProperty
-import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -72,8 +72,6 @@ import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
-import kotlinx.test.IgnoreJsTarget
-import kotlinx.test.IgnoreWasmTarget
 
 @Composable fun Container(content: @Composable () -> Unit) = content()
 
@@ -1941,7 +1939,6 @@ class CompositionTests {
     }
 
     @Test
-    @Ignore // b/346821372
     fun testRemember_RememberForgetNestedOrder_Incremental() = compositionTest {
         var order = 0
         val objects = mutableListOf<Any>()
@@ -2039,7 +2036,7 @@ class CompositionTests {
         // be called in the same order as if it came in all at once.
         assertArrayEquals(
             "Expected exit order",
-            arrayOf("L0A", "L1A", "L2A", "L3A", "Leaf", "L3B", "L2B", "L1B", "L0A"),
+            arrayOf("L0A", "L1A", "L2A", "L3A", "Leaf", "L3B", "L2B", "L1B", "L0B"),
             forgetOrder.map { (it as Named).name }.toTypedArray(),
         )
     }
@@ -2566,10 +2563,7 @@ class CompositionTests {
     }
 
     @Test
-    // The test for web is properly implemented in CompositionTests.web.kt
-    @IgnoreJsTarget
-    @IgnoreWasmTarget
-    fun testRememberObserver_Abandon_Recompose() {
+    fun testRememberObserver_Abandon_Recompose() = wrapRunTest {
         val abandonedObjects = mutableListOf<RememberObserver>()
         val observed =
             object : RememberObserver {
@@ -2587,21 +2581,22 @@ class CompositionTests {
             }
         assertFailsWith(IllegalStateException::class, message = "Throw") {
             compositionTest {
-                val rememberObject = mutableStateOf(false)
+                    val rememberObject = mutableStateOf(false)
 
-                compose {
-                    if (rememberObject.value) {
-                        @Suppress("UNUSED_EXPRESSION") remember { observed }
-                        error("Throw")
+                    compose {
+                        if (rememberObject.value) {
+                            @Suppress("UNUSED_EXPRESSION") remember { observed }
+                            error("Throw")
+                        }
                     }
+
+                    assertTrue(abandonedObjects.isEmpty())
+
+                    rememberObject.value = true
+
+                    advance(ignorePendingWork = true)
                 }
-
-                assertTrue(abandonedObjects.isEmpty())
-
-                rememberObject.value = true
-
-                advance(ignorePendingWork = true)
-            }
+                .awaitCompletion()
         }
 
         assertArrayEquals(listOf(observed), abandonedObjects)
@@ -5194,18 +5189,4 @@ inline fun ExplicitStartReplaceGroup(
     if (insertGroup) currentComposer.startReplaceGroup(key)
     content()
     if (insertGroup) currentComposer.endReplaceGroup()
-}
-
-internal fun expectError(message: String, block: () -> Unit) {
-    var exceptionThrown = false
-    try {
-        block()
-    } catch (e: Throwable) {
-        exceptionThrown = true
-        assertTrue(
-            e.message?.contains(message) == true,
-            "Expected \"${e.message}\" to contain \"$message\"",
-        )
-    }
-    assertTrue(exceptionThrown, "Expected test to throw an exception containing \"$message\"")
 }

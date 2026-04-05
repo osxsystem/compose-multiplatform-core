@@ -15,6 +15,7 @@
  */
 package androidx.compose.remote.core.operations;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteComposeOperation;
@@ -32,6 +33,7 @@ import org.jspecify.annotations.NonNull;
 import java.util.List;
 
 /** Add a click area to the document */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class ClickArea extends Operation
         implements RemoteComposeOperation, AccessibleComponent, VariableSupport, Serializable {
     private static final int OP_CODE = Operations.CLICK_AREA;
@@ -222,16 +224,22 @@ public class ClickArea extends Operation
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Canvas Operations", OP_CODE, CLASS_NAME)
+        doc.operation("Protocol Operations", OP_CODE, CLASS_NAME)
+                .additionalDocumentation("click_area")
                 .description("Define a region you can click on")
+                .field(DocumentedOperation.INT, "id", "The id of the click area")
+                .field(
+                        DocumentedOperation.INT,
+                        "contentDescription",
+                        "The content description (as a textId)")
                 .field(DocumentedOperation.FLOAT, "left", "The left side of the region")
                 .field(DocumentedOperation.FLOAT, "top", "The top of the region")
                 .field(DocumentedOperation.FLOAT, "right", "The right side of the region")
                 .field(DocumentedOperation.FLOAT, "bottom", "The bottom of the region")
                 .field(
-                        DocumentedOperation.FLOAT,
+                        DocumentedOperation.INT,
                         "metadata",
-                        "user defined string accessible in callback");
+                        "User defined string (as a textId) accessible in callback");
     }
 
     @Override

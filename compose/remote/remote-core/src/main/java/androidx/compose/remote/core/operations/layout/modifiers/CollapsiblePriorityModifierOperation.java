@@ -15,6 +15,7 @@
  */
 package androidx.compose.remote.core.operations.layout.modifiers;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteContext;
@@ -31,6 +32,7 @@ import org.jspecify.annotations.NonNull;
 import java.util.List;
 
 /** Set an optional priority on a component within a collapsible layout */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class CollapsiblePriorityModifierOperation extends Operation
         implements ModifierOperation, Serializable {
     private static final int OP_CODE = Operations.MODIFIER_COLLAPSIBLE_PRIORITY;
@@ -105,8 +107,8 @@ public class CollapsiblePriorityModifierOperation extends Operation
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Layout Operations", OP_CODE, "CollapsiblePriorityModifier")
-                .description("Add additional priority to children of Collapsible layouts")
+        doc.operation("Modifier Operations", OP_CODE, CLASS_NAME)
+                .description("Add additional priority to children of collapsible layouts")
                 .field(DocumentedOperation.INT, "orientation", "Horizontal(0) or Vertical (1)")
                 .field(DocumentedOperation.FLOAT, "priority", "The associated priority");
     }

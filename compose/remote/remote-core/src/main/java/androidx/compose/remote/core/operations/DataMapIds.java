@@ -18,6 +18,7 @@ package androidx.compose.remote.core.operations;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.INT;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.UTF8;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteContext;
@@ -31,6 +32,7 @@ import org.jspecify.annotations.Nullable;
 import java.util.List;
 
 /** This is a map of strings to type & Id */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class DataMapIds extends Operation {
     private static final int OP_CODE = Operations.ID_MAP;
     private static final String CLASS_NAME = "DataMapIds";
@@ -146,11 +148,15 @@ public class DataMapIds extends Operation {
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
         doc.operation("Data Operations", OP_CODE, CLASS_NAME)
-                .description("Encode a collection of name id pairs")
-                .field(INT, "id", "id the array")
-                .field(INT, "length", "number of entries")
-                .field(INT, "names[0]", "length", "path encoded as floats")
-                .field(UTF8, "id[0]", "length", "path encoded as floats");
+                .description("Encode a collection of named variable IDs")
+                .field(INT, "id", "The ID of the map")
+                .field(INT, "length", "Number of entries")
+                .startSubsection("REPEATED DATA")
+                .field(UTF8, "name", "The name of the entry")
+                .field(INT, "type", "The type of the entry")
+                .field(INT, "id", "The ID of the variable")
+                .endSubsection()
+        ;
     }
 
     @NonNull

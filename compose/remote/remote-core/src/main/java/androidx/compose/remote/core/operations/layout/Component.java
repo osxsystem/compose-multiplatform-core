@@ -15,6 +15,7 @@
  */
 package androidx.compose.remote.core.operations.layout;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.CoreDocument;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.PaintContext;
@@ -25,11 +26,13 @@ import androidx.compose.remote.core.TouchListener;
 import androidx.compose.remote.core.VariableSupport;
 import androidx.compose.remote.core.WireBuffer;
 import androidx.compose.remote.core.operations.BitmapData;
+import androidx.compose.remote.core.operations.ComponentData;
 import androidx.compose.remote.core.operations.ComponentValue;
 import androidx.compose.remote.core.operations.TextData;
 import androidx.compose.remote.core.operations.TouchExpression;
 import androidx.compose.remote.core.operations.layout.animation.AnimateMeasure;
 import androidx.compose.remote.core.operations.layout.animation.AnimationSpec;
+import androidx.compose.remote.core.operations.layout.managers.LayoutManager;
 import androidx.compose.remote.core.operations.layout.measure.ComponentMeasure;
 import androidx.compose.remote.core.operations.layout.measure.Measurable;
 import androidx.compose.remote.core.operations.layout.measure.MeasurePass;
@@ -46,6 +49,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 
 /** Generic Component class */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class Component extends PaintOperation
         implements Container, Measurable, SerializableToString, Serializable {
 
@@ -56,20 +60,26 @@ public class Component extends PaintOperation
     protected float mY;
     protected float mWidth;
     protected float mHeight;
-    @Nullable protected Component mParent;
+    @Nullable
+    protected Component mParent;
     protected int mAnimationId = -1;
     public int mVisibility = Visibility.VISIBLE;
     public int mScheduledVisibility = Visibility.VISIBLE;
-    @NonNull public ArrayList<Operation> mList = new ArrayList<>();
+    @NonNull
+    public ArrayList<Operation> mList = new ArrayList<>();
     public @Nullable PaintOperation
             mPreTranslate; // todo, can we initialize this here and make it NonNull?
     public boolean mNeedsMeasure = true;
     public boolean mNeedsRepaint = false;
-    @Nullable public AnimateMeasure mAnimateMeasure;
-    @NonNull public AnimationSpec mAnimationSpec = AnimationSpec.DEFAULT;
+    @Nullable
+    public AnimateMeasure mAnimateMeasure;
+    @NonNull
+    public AnimationSpec mAnimationSpec = AnimationSpec.DEFAULT;
     public boolean mFirstLayout = true;
-    @NonNull PaintBundle mPaint = new PaintBundle();
-    @NonNull protected HashSet<ComponentValue> mComponentValues = new HashSet<>();
+    @NonNull
+    PaintBundle mPaint = new PaintBundle();
+    @NonNull
+    protected HashSet<ComponentValue> mComponentValues = new HashSet<>();
 
     protected float mZIndex = 0f;
 
@@ -168,7 +178,7 @@ public class Component extends PaintOperation
      *
      * @param context the current context
      */
-    private void updateComponentValues(@NonNull RemoteContext context) {
+    protected void updateComponentValues(@NonNull RemoteContext context) {
         if (DEBUG) {
             System.out.println(
                     "UPDATE COMPONENT VALUES ("
@@ -204,6 +214,46 @@ public class Component extends PaintOperation
                                             + " to "
                                             + mHeight);
                         }
+                        break;
+                    case ComponentValue.POS_X:
+                        context.loadFloat(v.getValueId(), mX);
+                        break;
+                    case ComponentValue.POS_Y:
+                        context.loadFloat(v.getValueId(), mY);
+                        break;
+                    case ComponentValue.POS_ROOT_X:
+                        mLocation[0] = 0f;
+                        mLocation[1] = 0f;
+                        getLocationInWindow(context, mLocation);
+                        context.loadFloat(v.getValueId(), mLocation[0]);
+                        break;
+                    case ComponentValue.POS_ROOT_Y:
+                        mLocation[0] = 0f;
+                        mLocation[1] = 0f;
+                        getLocationInWindow(context, mLocation);
+                        context.loadFloat(v.getValueId(), mLocation[1]);
+                        break;
+                    case ComponentValue.CONTENT_WIDTH:
+                        float contentWidth = mWidth;
+                        if (this instanceof LayoutComponent) {
+                            LayoutComponent layoutComponent = (LayoutComponent) this;
+                            if (layoutComponent.mHorizontalScrollDelegate != null) {
+                                contentWidth =
+                                        layoutComponent.mHorizontalScrollDelegate.contentWidth();
+                            }
+                        }
+                        context.loadFloat(v.getValueId(), contentWidth);
+                        break;
+                    case ComponentValue.CONTENT_HEIGHT:
+                        float contentHeight = mHeight;
+                        if (this instanceof LayoutComponent) {
+                            LayoutComponent layoutComponent = (LayoutComponent) this;
+                            if (layoutComponent.mVerticalScrollDelegate != null) {
+                                contentHeight =
+                                        layoutComponent.mVerticalScrollDelegate.contentHeight();
+                            }
+                        }
+                        context.loadFloat(v.getValueId(), contentHeight);
                         break;
                 }
             }
@@ -298,8 +348,6 @@ public class Component extends PaintOperation
 
     /**
      * Add a component value to the component
-     *
-     * @param v
      */
     public void addComponentValue(@NonNull ComponentValue v) {
         mComponentValues.add(v);
@@ -308,40 +356,36 @@ public class Component extends PaintOperation
     /**
      * Returns the min intrinsic width of the layout
      *
-     * @param context
      * @return the width in pixels
      */
-    public float minIntrinsicWidth(@Nullable RemoteContext context) {
+    public float minIntrinsicWidth(@NonNull RemoteContext context) {
         return getWidth();
     }
 
     /**
      * Returns the max intrinsic width of the layout
      *
-     * @param context
      * @return the width in pixels
      */
-    public float maxIntrinsicWidth(@Nullable RemoteContext context) {
+    public float maxIntrinsicWidth(@NonNull RemoteContext context) {
         return getWidth();
     }
 
     /**
      * Returns the min intrinsic height of the layout
      *
-     * @param context
      * @return the height in pixels
      */
-    public float minIntrinsicHeight(@Nullable RemoteContext context) {
+    public float minIntrinsicHeight(@NonNull RemoteContext context) {
         return getHeight();
     }
 
     /**
      * Returns the max intrinsic height of the layout
      *
-     * @param context
      * @return the height in pixels
      */
-    public float maxIntrinsicHeight(@Nullable RemoteContext context) {
+    public float maxIntrinsicHeight(@NonNull RemoteContext context) {
         return getHeight();
     }
 
@@ -369,11 +413,34 @@ public class Component extends PaintOperation
 
     /**
      * If the component contains variables beside mList, make sure to register them here
-     *
-     * @param context
      */
     public void registerVariables(@NonNull RemoteContext context) {
         // Nothing here
+    }
+
+    /**
+     * Returns the value for the given alignment line
+     *
+     * @param line type of line
+     */
+    public float getAlignValue(@NonNull PaintContext context, float line) {
+        return 0f;
+    }
+
+    /**
+     * Returns true if the component contains computed modifiers
+     */
+    public boolean hasComputedLayout() {
+        return false;
+    }
+
+    /**
+     * Apply computed modifiers
+     */
+    public boolean applyComputedLayout(int type, @NonNull PaintContext context,
+            @NonNull ComponentMeasure m, @NonNull ComponentMeasure parent) {
+        // nothing here
+        return false;
     }
 
     public static class Visibility {
@@ -386,13 +453,11 @@ public class Component extends PaintOperation
         public static final int OVERRIDE_INVISIBLE = 64;
         public static final int CLEAR_OVERRIDE = 128;
 
-        private Visibility() {}
+        private Visibility() {
+        }
 
         /**
          * Returns a string representation of the field
-         *
-         * @param value
-         * @return
          */
         public static @NonNull String toString(int value) {
             switch (value) {
@@ -419,9 +484,6 @@ public class Component extends PaintOperation
 
         /**
          * Returns true if gone
-         *
-         * @param value
-         * @return
          */
         public static boolean isGone(int value) {
             if ((value >> 4) > 0) {
@@ -432,9 +494,6 @@ public class Component extends PaintOperation
 
         /**
          * Returns true if visible
-         *
-         * @param value
-         * @return
          */
         public static boolean isVisible(int value) {
             if ((value >> 4) > 0) {
@@ -445,9 +504,6 @@ public class Component extends PaintOperation
 
         /**
          * Returns true if invisible
-         *
-         * @param value
-         * @return
          */
         public static boolean isInvisible(int value) {
             if ((value >> 4) > 0) {
@@ -458,9 +514,6 @@ public class Component extends PaintOperation
 
         /**
          * Returns true if the field has an override
-         *
-         * @param value
-         * @return
          */
         public static boolean hasOverride(int value) {
             return (value >> 4) > 0;
@@ -468,9 +521,6 @@ public class Component extends PaintOperation
 
         /**
          * Clear the override values
-         *
-         * @param value
-         * @return
          */
         public static int clearOverride(int value) {
             return value & 15;
@@ -478,10 +528,6 @@ public class Component extends PaintOperation
 
         /**
          * Add an override value
-         *
-         * @param value
-         * @param visibility
-         * @return
          */
         public static int add(int value, int visibility) {
             int v = value & 15;
@@ -495,8 +541,6 @@ public class Component extends PaintOperation
 
     /**
      * Returns true if the component is visible
-     *
-     * @return
      */
     public boolean isVisible() {
         if (mParent == null || !Visibility.isVisible(mVisibility)) {
@@ -507,8 +551,6 @@ public class Component extends PaintOperation
 
     /**
      * Returns true if the component is gone
-     *
-     * @return
      */
     public boolean isGone() {
         return Visibility.isGone(mVisibility);
@@ -516,8 +558,6 @@ public class Component extends PaintOperation
 
     /**
      * Returns true if the component is invisible
-     *
-     * @return
      */
     public boolean isInvisible() {
         return Visibility.isInvisible(mVisibility);
@@ -577,6 +617,7 @@ public class Component extends PaintOperation
         if (!mFirstLayout
                 && context.isAnimationEnabled()
                 && mAnimationSpec.isAnimationEnabled()
+                && m.getAllowsAnimation()
                 && !(this instanceof LayoutComponentContent)) {
             if (mAnimateMeasure == null) {
                 ComponentMeasure origin =
@@ -644,22 +685,18 @@ public class Component extends PaintOperation
         }
     }
 
-    public float @NonNull [] locationInWindow = new float[2];
+    protected float @NonNull [] mLocation = new float[2];
 
     /**
      * Hit detection -- returns true if the point (x, y) is inside the component
-     *
-     * @param x
-     * @param y
-     * @return
      */
-    public boolean contains(float x, float y) {
-        locationInWindow[0] = 0f;
-        locationInWindow[1] = 0f;
-        getLocationInWindow(locationInWindow);
-        float lx1 = locationInWindow[0];
+    public boolean contains(@NonNull RemoteContext context, float x, float y) {
+        mLocation[0] = 0f;
+        mLocation[1] = 0f;
+        getLocationInWindow(context, mLocation, true);
+        float lx1 = mLocation[0];
+        float ly1 = mLocation[1];
         float lx2 = lx1 + mWidth;
-        float ly1 = locationInWindow[1];
         float ly2 = ly1 + mHeight;
         return x >= lx1 && x < lx2 && y >= ly1 && y < ly2;
     }
@@ -685,72 +722,131 @@ public class Component extends PaintOperation
     /**
      * Click handler
      *
-     * @param context the current context
+     * @param context  the current context
      * @param document the current document
-     * @param x x location on screen or -1 if unconditional click
-     * @param y y location on screen or -1 if unconditional click
+     * @param x        x location on screen or -1 if unconditional click
+     * @param y        y location on screen or -1 if unconditional click
+     * @return true if the click was handled
      */
-    public void onClick(
+    public boolean onClick(
             @NonNull RemoteContext context, @NonNull CoreDocument document, float x, float y) {
         boolean isUnconditional = x == -1 && y == -1;
-        if (!isUnconditional && !contains(x, y)) {
-            return;
+        if (!isUnconditional && !contains(context, x, y)) {
+            return false;
         }
-        float cx = isUnconditional ? -1 : x - getScrollX();
-        float cy = isUnconditional ? -1 : y - getScrollY();
-        for (Operation op : mList) {
-            if (op instanceof Component) {
-                ((Component) op).onClick(context, document, cx, cy);
+        if (context.getTouchVersion() == LayoutManager.FIX_TOUCH_EVENT) {
+            mLocation[0] = 0f;
+            mLocation[1] = 0f;
+            getLocationInWindow(context, mLocation, true);
+            float lx = isUnconditional ? -1 : x - mLocation[0];
+            float ly = isUnconditional ? -1 : y - mLocation[1];
+
+            mLocation[0] = 0f;
+            mLocation[1] = 0f;
+            getLocationInWindow(context, mLocation, false);
+
+            // Iterate backwards so the top-most component handles the click first
+            for (int i = mList.size() - 1; i >= 0; i--) {
+                Operation op = mList.get(i);
+                if (op instanceof Component) {
+                    if (((Component) op).onClick(context, document, x, y)) {
+                        return true;
+                    }
+                }
+                if (op instanceof ClickHandler) {
+                    if (((ClickHandler) op).onClick(context, document, this, lx, ly)) {
+                        return true;
+                    }
+                }
             }
-            if (op instanceof ClickHandler) {
-                ((ClickHandler) op).onClick(context, document, this, cx, cy);
+        } else {
+            float cx = isUnconditional ? -1 : x - getScrollX();
+            float cy = isUnconditional ? -1 : y - getScrollY();
+            for (Operation op : mList) {
+                if (op instanceof Component) {
+                    ((Component) op).onClick(context, document, cx, cy);
+                }
+                if (op instanceof ClickHandler) {
+                    ((ClickHandler) op).onClick(context, document, this, cx, cy);
+                }
             }
         }
+        return false;
     }
 
     /**
      * Touch down handler
      *
-     * @param context the current context
+     * @param context  the current context
      * @param document the current document
-     * @param x
-     * @param y
+     * @return true if handled
      */
-    public void onTouchDown(
+    public boolean onTouchDown(
             @NonNull RemoteContext context, @NonNull CoreDocument document, float x, float y) {
-        if (!contains(x, y)) {
-            return;
+        if (!contains(context, x, y)) {
+            return false;
         }
-        float cx = x - getScrollX();
-        float cy = y - getScrollY();
-        for (Operation op : mList) {
-            if (op instanceof Component) {
-                ((Component) op).onTouchDown(context, document, cx, cy);
+        if (context.getTouchVersion() == LayoutManager.FIX_TOUCH_EVENT) {
+            mLocation[0] = 0f;
+            mLocation[1] = 0f;
+            getLocationInWindow(context, mLocation, true);
+            float lx = x - mLocation[0];
+            float ly = y - mLocation[1];
+
+            mLocation[0] = 0f;
+            mLocation[1] = 0f;
+            getLocationInWindow(context, mLocation, false);
+
+            boolean handled = false;
+            boolean componentHandled = false;
+            // Iterate backwards so the top-most component handles the touch first
+            for (int i = mList.size() - 1; i >= 0; i--) {
+                Operation op = mList.get(i);
+                if (op instanceof Component) {
+                    if (componentHandled) continue;
+                    if (((Component) op).onTouchDown(context, document, x, y)) {
+                        componentHandled = true;
+                    }
+                } else if (op instanceof TouchHandler) {
+                    if (((TouchHandler) op).onTouchDown(context, document, this, lx, ly)) {
+                        handled = true;
+                    }
+                } else if (op instanceof TouchExpression) {
+                    TouchExpression touchExpression = (TouchExpression) op;
+                    touchExpression.updateVariables(context);
+                    touchExpression.touchDown(context, lx, ly);
+                    document.appliedTouchOperation(this);
+                    handled = true;
+                }
             }
-            if (op instanceof TouchHandler) {
-                ((TouchHandler) op).onTouchDown(context, document, this, cx, cy);
+            return componentHandled || handled;
+        } else {
+            float cx = x - getScrollX();
+            float cy = y - getScrollY();
+            for (Operation op : mList) {
+                if (op instanceof Component) {
+                    ((Component) op).onTouchDown(context, document, cx, cy);
+                }
+                if (op instanceof TouchHandler) {
+                    ((TouchHandler) op).onTouchDown(context, document, this, cx, cy);
+                }
+                if (op instanceof TouchExpression) {
+                    TouchExpression touchExpression = (TouchExpression) op;
+                    touchExpression.updateVariables(context);
+                    touchExpression.touchDown(context, cx, cy);
+                    document.appliedTouchOperation(this);
+                }
             }
-            if (op instanceof TouchExpression) {
-                TouchExpression touchExpression = (TouchExpression) op;
-                touchExpression.updateVariables(context);
-                touchExpression.touchDown(context, cx, cy);
-                document.appliedTouchOperation(this);
-            }
+            return false;
         }
     }
 
     /**
      * Touch Up handler
      *
-     * @param context
-     * @param document
-     * @param x
-     * @param y
-     * @param dx
-     * @param dy
-     * @param force
+     * @return true if handled
      */
-    public void onTouchUp(
+    public boolean onTouchUp(
             @NonNull RemoteContext context,
             @NonNull CoreDocument document,
             float x,
@@ -758,109 +854,218 @@ public class Component extends PaintOperation
             float dx,
             float dy,
             boolean force) {
-        if (!force && !contains(x, y)) {
-            return;
+        if (!force && !contains(context, x, y)) {
+            return false;
         }
-        float cx = x - getScrollX();
-        float cy = y - getScrollY();
-        for (Operation op : mList) {
-            if (op instanceof Component) {
-                ((Component) op).onTouchUp(context, document, cx, cy, dx, dy, force);
+
+        if (context.getTouchVersion() == LayoutManager.FIX_TOUCH_EVENT) {
+            mLocation[0] = 0f;
+            mLocation[1] = 0f;
+            getLocationInWindow(context, mLocation, true);
+            float lx = x - mLocation[0];
+            float ly = y - mLocation[1];
+
+            mLocation[0] = 0f;
+            mLocation[1] = 0f;
+            getLocationInWindow(context, mLocation, false);
+
+            boolean handled = false;
+            boolean componentHandled = false;
+            // Iterate backwards
+            for (int i = mList.size() - 1; i >= 0; i--) {
+                Operation op = mList.get(i);
+                if (op instanceof Component) {
+                    if (componentHandled) continue;
+                    if (((Component) op).onTouchUp(context, document, x, y, dx, dy, force)) {
+                        componentHandled = true;
+                    }
+                } else if (op instanceof TouchHandler) {
+                    if (((TouchHandler) op).onTouchUp(context, document, this, lx, ly, dx, dy)) {
+                        handled = true;
+                    }
+                } else if (op instanceof TouchExpression) {
+                    TouchExpression touchExpression = (TouchExpression) op;
+                    touchExpression.updateVariables(context);
+                    touchExpression.touchUp(context, lx, ly, dx, dy);
+                    handled = true;
+                }
             }
-            if (op instanceof TouchHandler) {
-                ((TouchHandler) op).onTouchUp(context, document, this, cx, cy, dx, dy);
+            return componentHandled || handled;
+        } else {
+            float cx = x - getScrollX();
+            float cy = y - getScrollY();
+            for (Operation op : mList) {
+                if (op instanceof Component) {
+                    ((Component) op).onTouchUp(context, document, cx, cy, dx, dy, force);
+                }
+                if (op instanceof TouchHandler) {
+                    ((TouchHandler) op).onTouchUp(context, document, this, cx, cy, dx, dy);
+                }
+                if (op instanceof TouchExpression) {
+                    TouchExpression touchExpression = (TouchExpression) op;
+                    touchExpression.updateVariables(context);
+                    touchExpression.touchUp(context, cx, cy, dx, dy);
+                }
             }
-            if (op instanceof TouchExpression) {
-                TouchExpression touchExpression = (TouchExpression) op;
-                touchExpression.updateVariables(context);
-                touchExpression.touchUp(context, cx, cy, dx, dy);
-            }
+            return false;
         }
     }
 
     /**
      * Touch Cancel handler
      *
-     * @param context
-     * @param document
-     * @param x
-     * @param y
-     * @param force
+     * @return true if handled
      */
-    public void onTouchCancel(
+    public boolean onTouchCancel(
             @NonNull RemoteContext context,
             @NonNull CoreDocument document,
             float x,
             float y,
             boolean force) {
-        if (!force && !contains(x, y)) {
-            return;
+        if (!force && !contains(context, x, y)) {
+            return false;
         }
-        float cx = x - getScrollX();
-        float cy = y - getScrollY();
-        for (Operation op : mList) {
-            if (op instanceof Component) {
-                ((Component) op).onTouchCancel(context, document, cx, cy, force);
+        if (context.getTouchVersion() == LayoutManager.FIX_TOUCH_EVENT) {
+            mLocation[0] = 0f;
+            mLocation[1] = 0f;
+            getLocationInWindow(context, mLocation, true);
+            float lx = x - mLocation[0];
+            float ly = y - mLocation[1];
+
+            mLocation[0] = 0f;
+            mLocation[1] = 0f;
+            getLocationInWindow(context, mLocation, false);
+
+            boolean handled = false;
+            boolean componentHandled = false;
+            // Iterate backwards
+            for (int i = mList.size() - 1; i >= 0; i--) {
+                Operation op = mList.get(i);
+                if (op instanceof Component) {
+                    if (componentHandled) continue;
+                    if (((Component) op).onTouchCancel(context, document, x, y, force)) {
+                        componentHandled = true;
+                    }
+                } else if (op instanceof TouchHandler) {
+                    if (((TouchHandler) op).onTouchCancel(context, document, this, lx, ly)) {
+                        handled = true;
+                    }
+                } else if (op instanceof TouchExpression) {
+                    TouchExpression touchExpression = (TouchExpression) op;
+                    touchExpression.updateVariables(context);
+                    touchExpression.touchUp(context, lx, ly, 0, 0);
+                    handled = true;
+                }
             }
-            if (op instanceof TouchHandler) {
-                ((TouchHandler) op).onTouchCancel(context, document, this, cx, cy);
+            return componentHandled || handled;
+        } else {
+            float cx = x - getScrollX();
+            float cy = y - getScrollY();
+            for (Operation op : mList) {
+                if (op instanceof Component) {
+                    ((Component) op).onTouchCancel(context, document, cx, cy, force);
+                }
+                if (op instanceof TouchHandler) {
+                    ((TouchHandler) op).onTouchCancel(context, document, this, cx, cy);
+                }
+                if (op instanceof TouchExpression) {
+                    TouchExpression touchExpression = (TouchExpression) op;
+                    touchExpression.updateVariables(context);
+                    touchExpression.touchUp(context, cx, cy, 0, 0);
+                }
             }
-            if (op instanceof TouchExpression) {
-                TouchExpression touchExpression = (TouchExpression) op;
-                touchExpression.updateVariables(context);
-                touchExpression.touchUp(context, cx, cy, 0, 0);
-            }
+            return false;
         }
     }
 
     /**
      * Touch Drag handler
      *
-     * @param context
-     * @param document
-     * @param x
-     * @param y
-     * @param force
+     * @return true if handled
      */
-    public void onTouchDrag(
+    public boolean onTouchDrag(
             @NonNull RemoteContext context,
             @NonNull CoreDocument document,
             float x,
             float y,
             boolean force) {
-        if (!force && !contains(x, y)) {
-            return;
+        if (!force && !contains(context, x, y)) {
+            return false;
         }
-        float cx = x - getScrollX();
-        float cy = y - getScrollY();
-        for (Operation op : mList) {
-            if (op instanceof Component) {
-                ((Component) op).onTouchDrag(context, document, cx, cy, force);
+        if (context.getTouchVersion() == LayoutManager.FIX_TOUCH_EVENT) {
+            mLocation[0] = 0f;
+            mLocation[1] = 0f;
+            getLocationInWindow(context, mLocation, true);
+            float lx = x - mLocation[0];
+            float ly = y - mLocation[1];
+
+            mLocation[0] = 0f;
+            mLocation[1] = 0f;
+            getLocationInWindow(context, mLocation, false);
+
+            boolean handled = false;
+            boolean componentHandled = false;
+            // Iterate backwards
+            for (int i = mList.size() - 1; i >= 0; i--) {
+                Operation op = mList.get(i);
+                if (op instanceof Component) {
+                    if (componentHandled) continue;
+                    if (((Component) op).onTouchDrag(context, document, x, y, force)) {
+                        componentHandled = true;
+                    }
+                } else if (op instanceof TouchHandler) {
+                    if (((TouchHandler) op).onTouchDrag(context, document, this, lx, ly)) {
+                        handled = true;
+                    }
+                } else if (op instanceof TouchExpression) {
+                    TouchExpression touchExpression = (TouchExpression) op;
+                    touchExpression.updateVariables(context);
+                    touchExpression.touchDrag(context, lx, ly);
+                    handled = true;
+                }
             }
-            if (op instanceof TouchHandler) {
-                ((TouchHandler) op).onTouchDrag(context, document, this, cx, cy);
+            return componentHandled || handled;
+        } else {
+            float cx = x - getScrollX();
+            float cy = y - getScrollY();
+            for (Operation op : mList) {
+                if (op instanceof Component) {
+                    ((Component) op).onTouchDrag(context, document, cx, cy, force);
+                }
+                if (op instanceof TouchHandler) {
+                    ((TouchHandler) op).onTouchDrag(context, document, this, cx, cy);
+                }
+                if (op instanceof TouchExpression) {
+                    TouchExpression touchExpression = (TouchExpression) op;
+                    touchExpression.updateVariables(context);
+                    touchExpression.touchDrag(context, x, y);
+                }
             }
-            if (op instanceof TouchExpression) {
-                TouchExpression touchExpression = (TouchExpression) op;
-                touchExpression.updateVariables(context);
-                touchExpression.touchDrag(context, x, y);
-            }
+            return false;
         }
     }
 
     /**
      * Returns the location of the component relative to the root component
      *
-     * @param value a 2 dimension float array that will receive the horizontal and vertical position
-     *     of the component.
+     * @param value   a 2 dimension float array that will receive the horizontal and vertical
+     *                position
+     *                of the component.
      * @param forSelf whether the location is for this container or a child, relevant for scrollable
-     *     items.
+     *                items.
      */
-    public void getLocationInWindow(float @NonNull [] value, boolean forSelf) {
+    public void getLocationInWindow(@NonNull RemoteContext context, float @NonNull [] value,
+            boolean forSelf) {
         value[0] += mX;
         value[1] += mY;
+        if (context.getTouchVersion() == LayoutManager.FIX_TOUCH_EVENT) {
+            if (!forSelf) {
+                value[0] += getScrollX();
+                value[1] += getScrollY();
+            }
+        }
         if (mParent != null) {
-            mParent.getLocationInWindow(value, false);
+            mParent.getLocationInWindow(context, value, false);
         }
     }
 
@@ -868,10 +1073,51 @@ public class Component extends PaintOperation
      * Returns the location of the component relative to the root component
      *
      * @param value a 2 dimension float array that will receive the horizontal and vertical position
-     *     of the component.
+     *              of the component.
      */
-    public void getLocationInWindow(float @NonNull [] value) {
-        getLocationInWindow(value, true);
+    public void getLocationInWindow(@NonNull RemoteContext context, float @NonNull [] value) {
+        getLocationInWindow(context, value, true);
+    }
+
+    /**
+     * Calculates the bounding box of this component relative to a specific ancestor component
+     * (semantic parent).
+     *
+     * <p>This method traverses up the component tree, accumulating coordinates and accounting for
+     * layout offsets such as padding and scroll positions if the intermediate components are
+     * {@link LayoutComponent}s.
+     *
+     * @param bounds   A 4-element array that will receive the bounds: [left, top, right, bottom].
+     * @param parentId The ID of the ancestor component to calculate the bounds relative to.
+     *                 If {@code null}, the coordinates will be relative to the root component.
+     */
+    public void getBoundsInSemanticParent(int @NonNull [] bounds, @Nullable Integer parentId) {
+        float x = 0;
+        float y = 0;
+
+        Component currentComponent = this;
+        while (currentComponent != null) {
+            // Add offset from parent origin
+            x += currentComponent.getX();
+            y += currentComponent.getY();
+
+            if (currentComponent instanceof LayoutComponent && currentComponent != this) {
+                LayoutComponent layoutComponent = (LayoutComponent) currentComponent;
+                x += layoutComponent.getPaddingLeft() + layoutComponent.getScrollX();
+                y += layoutComponent.getPaddingTop() + layoutComponent.getScrollY();
+            }
+
+            if (parentId != null && currentComponent.getComponentId() == parentId) {
+                break;
+            }
+
+            currentComponent = currentComponent.getParent();
+        }
+
+        bounds[0] = (int) x;
+        bounds[1] = (int) y;
+        bounds[2] = (int) (x + getWidth());
+        bounds[3] = (int) (y + getHeight());
     }
 
     @NonNull
@@ -1001,8 +1247,6 @@ public class Component extends PaintOperation
 
     /**
      * Returns a string containing the text operations if any
-     *
-     * @return
      */
     @NonNull
     public String textContent() {
@@ -1019,9 +1263,6 @@ public class Component extends PaintOperation
 
     /**
      * Utility debug function
-     *
-     * @param component
-     * @param context
      */
     public void debugBox(@NonNull Component component, @NonNull PaintContext context) {
         float width = component.mWidth;
@@ -1054,8 +1295,6 @@ public class Component extends PaintOperation
 
     /**
      * The vertical position of this component relative to its parent
-     *
-     * @return
      */
     public float getTranslateX() {
         if (mParent != null) {
@@ -1066,8 +1305,6 @@ public class Component extends PaintOperation
 
     /**
      * The horizontal position of this component relative to its parent
-     *
-     * @return
      */
     public float getTranslateY() {
         if (mParent != null) {
@@ -1078,8 +1315,6 @@ public class Component extends PaintOperation
 
     /**
      * Paint the component itself.
-     *
-     * @param context
      */
     public void paintingComponent(@NonNull PaintContext context) {
         if (mPreTranslate != null) {
@@ -1111,9 +1346,6 @@ public class Component extends PaintOperation
 
     /**
      * If animation is turned on and we need to be animated, we'll apply it.
-     *
-     * @param context
-     * @return
      */
     public boolean applyAnimationAsNeeded(@NonNull PaintContext context) {
         if (context.isAnimationEnabled() && mAnimateMeasure != null) {
@@ -1178,17 +1410,33 @@ public class Component extends PaintOperation
      * @param data an ArrayList that will be populated with the Data elements (if any)
      */
     public void getData(@NonNull ArrayList<Operation> data) {
+        getData(data, false);
+    }
+
+    /**
+     * Extract child data elements
+     *
+     * @param data             an ArrayList that will be populated with the Data elements (if any)
+     * @param allButComponents if true, all elements other than components will be added.
+     */
+    public void getData(@NonNull ArrayList<Operation> data, boolean allButComponents) {
         for (Operation op : mList) {
-            if (op instanceof TextData || op instanceof BitmapData) {
-                data.add(op);
+            if (allButComponents) {
+                if (!(op instanceof Component)) {
+                    data.add(op);
+                }
+            } else {
+                if (op instanceof TextData
+                        || op instanceof BitmapData
+                        || op instanceof ComponentData) {
+                    data.add(op);
+                }
             }
         }
     }
 
     /**
      * Returns the number of children components
-     *
-     * @return
      */
     public int getComponentCount() {
         int count = 0;
@@ -1203,8 +1451,6 @@ public class Component extends PaintOperation
     /**
      * Return the id used for painting the component -- either its component id or its animation id
      * (if set)
-     *
-     * @return
      */
     public int getPaintId() {
         if (mAnimationId != -1) {
@@ -1215,8 +1461,6 @@ public class Component extends PaintOperation
 
     /**
      * Return true if the needsRepaint flag is set on this component
-     *
-     * @return
      */
     public boolean doesNeedsRepaint() {
         return mNeedsRepaint;
@@ -1224,9 +1468,6 @@ public class Component extends PaintOperation
 
     /**
      * Utility function to return a component from its id
-     *
-     * @param cid
-     * @return
      */
     @Nullable
     public Component getComponent(int cid) {
@@ -1259,10 +1500,6 @@ public class Component extends PaintOperation
 
     /**
      * Return ourself or a matching modifier. Used by the semantics / accessibility layer.
-     *
-     * @param operationClass
-     * @return
-     * @param <T>
      */
     public <T> @Nullable T selfOrModifier(@NonNull Class<T> operationClass) {
         if (operationClass.isInstance(this)) {

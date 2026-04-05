@@ -17,10 +17,13 @@
 package androidx.compose.ui.awt
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ComposableOpenTarget
 import androidx.compose.runtime.currentCompositionLocalContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.key.KeyEvent
@@ -92,6 +95,7 @@ import javax.swing.JFrame
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
+@ComposableOpenTarget(-1)
 fun SwingWindow(
     visible: Boolean = true,
     onPreviewKeyEvent: (KeyEvent) -> Boolean = { false },
@@ -130,12 +134,14 @@ fun SwingWindow(
             update(it)
 
             // If displaying for the first time, make sure we draw the first frame before making
-            // the window visible, to avoid showing the window background
+            // the window visible to avoid showing the window background
             // It's the responsibility of setSizeSafely to
             // - Make the window displayable
             // - Size the window and the ComposeLayer correctly, so that we can draw it here
             if (!wasDisplayable && it.isDisplayable) {
-                it.contentPane.paint(it.contentPane.graphics)
+                Snapshot.withoutReadObservation {
+                    it.renderImmediately()
+                }
             }
         },
     )
@@ -171,6 +177,7 @@ fun SwingWindow(
  */
 @ExperimentalComposeUiApi
 @Composable
+@ComposableOpenTarget(-1)
 fun SwingWindow(
     onCloseRequest: () -> Unit,
     state: WindowState = rememberWindowState(),
@@ -225,13 +232,18 @@ fun SwingWindow(
         }
     }
 
+    val coroutineContext = rememberCoroutineScope().coroutineContext
+
     SwingWindow(
         visible = visible,
         onPreviewKeyEvent = onPreviewKeyEvent,
         onKeyEvent = onKeyEvent,
         create = {
             val graphicsConfiguration = WindowLocationTracker.lastActiveGraphicsConfiguration
-            ComposeWindow(graphicsConfiguration = graphicsConfiguration).apply {
+            ComposeWindow(
+                graphicsConfiguration = graphicsConfiguration,
+                coroutineContext = coroutineContext
+            ).apply {
                 // close state is controlled by WindowState.isOpen
                 defaultCloseOperation = JFrame.DO_NOTHING_ON_CLOSE
                 listeners.windowListenerRef.registerWithAndSet(
@@ -314,4 +326,3 @@ fun SwingWindow(
         content = content
     )
 }
-

@@ -16,7 +16,6 @@
 
 package androidx.compose.ui.scene
 
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.HistoricalChange
@@ -36,7 +35,7 @@ import kotlin.jvm.JvmInline
  * Represents pointer such as mouse cursor, or touch/stylus press.
  * There can be multiple pointers on the screen at the same time.
  */
-@ExperimentalComposeUiApi
+@InternalComposeUiApi
 class ComposeScenePointer(
     /**
      * Unique id associated with the pointer. Used to distinguish between multiple pointers that can exist
@@ -107,16 +106,6 @@ class ComposeScenePointer(
     }
 }
 
-internal fun PointerInputEventData.toComposeScenePointer() = ComposeScenePointer(
-    id = id,
-    position = position,
-    pressed = down,
-    type = type,
-    pressure = pressure,
-    historical = historical
-)
-
-@OptIn(ExperimentalComposeUiApi::class)
 internal fun PointerInputEvent(
     eventType: PointerEventType,
     pointers: List<ComposeScenePointer>,
@@ -125,7 +114,9 @@ internal fun PointerInputEvent(
     scrollDelta: Offset,
     buttons: PointerButtons,
     keyboardModifiers: PointerKeyboardModifiers,
-    changedButton: PointerButton?
+    changedButton: PointerButton?,
+    scaleGestureFactor: Float,
+    panGestureOffset: Offset,
 ) = PointerInputEvent(
     eventType = eventType,
     uptime = timeMillis,
@@ -141,7 +132,9 @@ internal fun PointerInputEvent(
             activeHover = it.type == PointerType.Mouse,
             historical = it.historical,
             scrollDelta = scrollDelta,
-            originalEventPosition = it.position
+            originalEventPosition = it.position,
+            scaleGestureFactor = scaleGestureFactor,
+            panGestureOffset = panGestureOffset,
         )
     },
     buttons = buttons,
@@ -165,11 +158,17 @@ value class PointerEventResult internal constructor(internal val value: Int) {
 
     constructor(
         anyMovementConsumed: Boolean = false,
-        anyChangeConsumed: Boolean = false
+        anyChangeConsumed: Boolean = false,
+        dispatchedToAPointerInputModifier: Boolean = false,
     ) : this(
-        value = (anyMovementConsumed.toInt() shl 1) or
+        value =
+            dispatchedToAPointerInputModifier.toInt() or
+            (anyMovementConsumed.toInt() shl 1) or
             (anyChangeConsumed.toInt() shl 2)
     )
+
+    internal val dispatchedToAPointerInputModifier
+        inline get() = (value and 0x1) != 0
 
     /** It's true when [PointerInputChange] was consumed and Pointer's position was changed */
     internal val anyMovementConsumed
@@ -187,7 +186,12 @@ private inline fun Boolean.toInt() = if (this) 1 else 0
 internal fun PointerEventResult.merging(
     result1: PointerEventResult,
     result2: PointerEventResult? = null,
-    result3: PointerEventResult? = null
+    result3: PointerEventResult? = null,
+    result4: PointerEventResult? = null,
+    result5: PointerEventResult? = null,
+    result6: PointerEventResult? = null,
+    result7: PointerEventResult? = null,
 ) = PointerEventResult(
-    value = this.value or result1.value or (result2?.value ?: 0) or (result3?.value ?: 0)
+    value = this.value or result1.value or (result2?.value ?: 0) or (result3?.value ?: 0) or
+        (result4?.value ?: 0) or (result5?.value ?: 0) or (result6?.value ?: 0) or (result7?.value ?: 0)
 )

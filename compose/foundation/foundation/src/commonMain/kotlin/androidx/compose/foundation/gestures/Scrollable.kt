@@ -21,9 +21,8 @@ import androidx.compose.animation.core.DecayAnimationSpec
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDecay
 import androidx.compose.animation.splineBasedDecay
-import androidx.compose.foundation.ComposeFoundationFlags
+import androidx.compose.foundation.ComposeFoundationFlags.isDelayPressesUsingGestureConsumptionEnabled
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.FocusedBoundsObserverNode
 import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.OverscrollEffect
@@ -34,6 +33,8 @@ import androidx.compose.foundation.internal.PlatformOptimizedCancellationExcepti
 import androidx.compose.foundation.relocation.BringIntoViewResponderNode
 import androidx.compose.foundation.rememberOverscrollEffect
 import androidx.compose.foundation.rememberPlatformOverscrollEffect
+import androidx.compose.foundation.scrollableArea
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.ui.Modifier
@@ -58,7 +59,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScrollModifierNode
 import androidx.compose.ui.input.pointer.PointerEvent
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.node.CompositionLocalConsumerModifierNode
 import androidx.compose.ui.node.DelegatableNode
@@ -92,6 +92,14 @@ import kotlinx.coroutines.withContext
  * Users should update their state themselves using default [ScrollableState] and its
  * `consumeScrollDelta` callback or by implementing [ScrollableState] interface manually and reflect
  * their own state in UI when using this component.
+ *
+ * `scrollable` is a low level modifier that handles low level scrolling input gestures, without
+ * other behaviors commonly used for scrollable containers. For building scrollable containers, see
+ * [androidx.compose.foundation.scrollableArea]. `scrollableArea` clips its content to its bounds,
+ * renders overscroll, and adjusts the direction of scroll gestures to ensure that the content moves
+ * with the user's gestures. See also [androidx.compose.foundation.verticalScroll] and
+ * [androidx.compose.foundation.horizontalScroll] for high level scrollable containers that handle
+ * layout and move the content as the user scrolls.
  *
  * If you don't need to have fling or nested scroll support, but want to make component simply
  * draggable, consider using [draggable].
@@ -134,12 +142,23 @@ fun Modifier.scrollable(
  * `consumeScrollDelta` callback or by implementing [ScrollableState] interface manually and reflect
  * their own state in UI when using this component.
  *
+ * `scrollable` is a low level modifier that handles low level scrolling input gestures, without
+ * other behaviors commonly used for scrollable containers. For building scrollable containers, see
+ * [androidx.compose.foundation.scrollableArea]. `scrollableArea` clips its content to its bounds,
+ * renders overscroll, and adjusts the direction of scroll gestures to ensure that the content moves
+ * with the user's gestures. See also [androidx.compose.foundation.verticalScroll] and
+ * [androidx.compose.foundation.horizontalScroll] for high level scrollable containers that handle
+ * layout and move the content as the user scrolls.
+ *
  * If you don't need to have fling or nested scroll support, but want to make component simply
  * draggable, consider using [draggable].
  *
  * This overload provides the access to [OverscrollEffect] that defines the behaviour of the over
  * scrolling logic. Use [androidx.compose.foundation.rememberOverscrollEffect] to create an instance
- * of the current provided overscroll implementation.
+ * of the current provided overscroll implementation. Note: compared to other APIs that accept
+ * [overscrollEffect] such as [scrollableArea] and [verticalScroll], `scrollable` does not render
+ * the overscroll, it only provides events. Manually add [androidx.compose.foundation.overscroll] to
+ * render the overscroll or use other APIs.
  *
  * @sample androidx.compose.foundation.samples.ScrollableSample
  * @param state [ScrollableState] state of the scrollable. Defines how scroll events will be
@@ -261,6 +280,7 @@ private class ScrollableElement(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 internal class ScrollableNode(
     state: ScrollableState,
     private var overscrollEffect: OverscrollEffect?,
@@ -284,8 +304,6 @@ internal class ScrollableNode(
     override val shouldAutoInvalidate: Boolean = false
 
     private val nestedScrollDispatcher = NestedScrollDispatcher()
-
-    private val scrollableContainerNode = delegate(ScrollableContainerNode(enabled))
 
     // Place holder fling behavior, we'll initialize it when the density is available.
     private val defaultFlingBehavior = platformScrollableDefaultFlingBehavior()
@@ -323,6 +341,9 @@ internal class ScrollableNode(
     private var scrollByOffsetAction: (suspend (Offset) -> Offset)? = null
 
     private var mouseWheelScrollingLogic: MouseWheelScrollingLogic? = null
+    private var trackpadScrollingLogic: TrackpadScrollingLogic? = null
+
+    private var scrollableContainerNode: ScrollableContainerNode? = null
 
     init {
         /** Nested scrolling */
@@ -330,11 +351,9 @@ internal class ScrollableNode(
 
         /** Focus scrolling */
         delegate(BringIntoViewResponderNode(contentInViewNode))
-        if (
-            @OptIn(ExperimentalFoundationApi::class)
-            !ComposeFoundationFlags.isKeepInViewFocusObservationChangeEnabled
-        ) {
-            delegate(FocusedBoundsObserverNode { contentInViewNode.onFocusBoundsChanged(it) })
+
+        if (!isDelayPressesUsingGestureConsumptionEnabled) {
+            scrollableContainerNode = delegate(ScrollableContainerNode(enabled))
         }
     }
 
@@ -349,13 +368,13 @@ internal class ScrollableNode(
         with(scrollingLogic) {
             scroll(scrollPriority = MutatePriority.UserInput) {
                 forEachDelta {
-                    // Indirect Touch Events should be reverted to account for the reverse we
+                    // Indirect pointer Events should be reverted to account for the reverse we
                     // do in Scrollable. Regular touchscreen events are inverted in scrollable, but
-                    // that shouldn't happen for indirect touch events, so we cancel the reverse
+                    // that shouldn't happen for indirect pointer events, so we cancel the reverse
                     // here.
-                    val invertIndirectTouch = if (it.isIndirectTouchEvent) -1f else 1f
+                    val invertIndirectPointer = if (it.isIndirectPointerEvent) -1f else 1f
                     scrollByWithOverscroll(
-                        it.delta.singleAxisOffset() * invertIndirectTouch,
+                        it.delta.singleAxisOffset() * invertIndirectPointer,
                         source = UserInput,
                     )
                 }
@@ -367,13 +386,13 @@ internal class ScrollableNode(
 
     override fun onDragStopped(event: DragEvent.DragStopped) {
         nestedScrollDispatcher.coroutineScope.launch {
-            // Indirect Touch Events should be reverted to account for the reverse we
+            // Indirect pointer Events should be reverted to account for the reverse we
             // do in Scrollable. Regular touchscreen events are inverted in scrollable, but
-            // that shouldn't happen for indirect touch events, so we cancel the reverse
+            // that shouldn't happen for indirect pointer events, so we cancel the reverse
             // here.
-            val invertIndirectTouch = if (event.isIndirectTouchEvent) -1f else 1f
+            val invertIndirectPointer = if (event.isIndirectPointerEvent) -1f else 1f
             scrollingLogic.onScrollStopped(
-                event.velocity * invertIndirectTouch,
+                event.velocity * invertIndirectPointer,
                 isMouseWheel = false,
             )
         }
@@ -385,11 +404,17 @@ internal class ScrollableNode(
         }
     }
 
+    private fun onTrackpadScrollStopped(velocity: Velocity) {
+        nestedScrollDispatcher.coroutineScope.launch {
+            scrollingLogic.onScrollStopped(velocity, isMouseWheel = false)
+        }
+    }
+
     override fun startDragImmediately(): Boolean {
         return scrollingLogic.shouldScrollImmediately()
     }
 
-    private fun ensureMouseWheelScrollNodeInitialized() {
+    private fun ensureMouseWheelScrollingLogicInitialized() {
         if (mouseWheelScrollingLogic == null) {
             mouseWheelScrollingLogic =
                 MouseWheelScrollingLogic(
@@ -400,7 +425,20 @@ internal class ScrollableNode(
                 )
         }
 
-        mouseWheelScrollingLogic?.startReceivingMouseWheelEvents(coroutineScope)
+        mouseWheelScrollingLogic?.startReceivingEvents(coroutineScope)
+    }
+
+    private fun ensureTrackpadScrollingLogicInitialized() {
+        if (trackpadScrollingLogic == null) {
+            trackpadScrollingLogic =
+                TrackpadScrollingLogic(
+                    scrollingLogic = scrollingLogic,
+                    onScrollStopped = ::onTrackpadScrollStopped,
+                    density = requireDensity(),
+                )
+        }
+
+        trackpadScrollingLogic?.startReceivingEvents(coroutineScope)
     }
 
     fun update(
@@ -416,7 +454,7 @@ internal class ScrollableNode(
         var shouldInvalidateSemantics = false
         if (this.enabled != enabled) { // enabled changed
             nestedScrollConnection.enabled = enabled
-            scrollableContainerNode.update(enabled)
+            scrollableContainerNode?.update(enabled)
             shouldInvalidateSemantics = true
         }
         // a new fling behavior was set, change the resolved one.
@@ -454,6 +492,7 @@ internal class ScrollableNode(
     override fun onAttach() {
         updateDefaultFlingBehavior()
         mouseWheelScrollingLogic?.updateDensity(requireDensity())
+        trackpadScrollingLogic?.updateDensity(requireDensity())
     }
 
     private fun updateDefaultFlingBehavior() {
@@ -466,6 +505,7 @@ internal class ScrollableNode(
         onCancelPointerInput()
         updateDefaultFlingBehavior()
         mouseWheelScrollingLogic?.updateDensity(requireDensity())
+        trackpadScrollingLogic?.updateDensity(requireDensity())
     }
 
     // Key handler for Page up/down scrolling behavior.
@@ -479,7 +519,7 @@ internal class ScrollableNode(
 
             val scrollAmount: Offset =
                 if (scrollingLogic.isVertical()) {
-                    val viewportHeight = contentInViewNode.viewportSize.height
+                    val viewportHeight = contentInViewNode.viewportSizeOrZero.height
 
                     val yAmount =
                         if (event.key == Key.PageUp) {
@@ -490,7 +530,7 @@ internal class ScrollableNode(
 
                     Offset(0f, yAmount)
                 } else {
-                    val viewportWidth = contentInViewNode.viewportSize.width
+                    val viewportWidth = contentInViewNode.viewportSizeOrZero.width
 
                     val xAmount =
                         if (event.key == Key.PageUp) {
@@ -529,14 +569,25 @@ internal class ScrollableNode(
         pass: PointerEventPass,
         bounds: IntSize,
     ) {
-        if (pointerEvent.changes.fastAny { canDrag.invoke(it) }) {
+        if (pointerEvent.changes.fastAny { canDrag.invoke(it.type) }) {
             super.onPointerEvent(pointerEvent, pass, bounds)
         }
+        initializeGestureCoordination()
         if (enabled) {
             if (pass == PointerEventPass.Initial && pointerEvent.type == PointerEventType.Scroll) {
-                ensureMouseWheelScrollNodeInitialized()
+                ensureMouseWheelScrollingLogicInitialized()
             }
             mouseWheelScrollingLogic?.onPointerEvent(pointerEvent, pass, bounds)
+
+            if (
+                pass == PointerEventPass.Initial &&
+                    (pointerEvent.type == PointerEventType.PanStart ||
+                        pointerEvent.type == PointerEventType.PanMove ||
+                        pointerEvent.type == PointerEventType.PanEnd)
+            ) {
+                ensureTrackpadScrollingLogicInitialized()
+            }
+            trackpadScrollingLogic?.onPointerEvent(pointerEvent, pass, bounds)
         }
     }
 
@@ -575,7 +626,7 @@ object ScrollableDefaults {
      * Returns a remembered [OverscrollEffect] created from the current value of
      * [LocalOverscrollFactory].
      *
-     * This API has been deprpecated, and replaced with [rememberOverscrollEffect]
+     * This API has been deprecated, and replaced with [rememberOverscrollEffect]
      */
     @Deprecated(
         "This API has been replaced with rememberOverscrollEffect, which queries theme provided OverscrollFactory values instead of the 'platform default' without customization.",
@@ -612,8 +663,19 @@ object ScrollableDefaults {
     }
 
     /**
-     * Used to determine the value of `reverseDirection` parameter of [Modifier.scrollable] in
-     * scrollable layouts.
+     * Calculates the final `reverseDirection` value for a scrollable component.
+     *
+     * This is a helper function used by [androidx.compose.foundation.scrollableArea] to determine
+     * whether to reverse the direction of scroll input. The goal is to provide a "natural"
+     * scrolling experience where content moves with the user's gesture, while also accounting for
+     * the [layoutDirection].
+     *
+     * The logic is as follows:
+     * 1. To achieve "natural" scrolling (content moves with the gesture), scroll deltas are
+     *    inverted. This function returns `true` by default when `reverseScrolling` is `false`.
+     * 2. In a Right-to-Left (`Rtl`) context with a `Horizontal` orientation, the direction is
+     *    flipped an additional time to maintain the natural feel, as the content is laid out from
+     *    right to left.
      *
      * @param layoutDirection current layout direction (e.g. from [LocalLayoutDirection])
      * @param orientation orientation of scroll
@@ -651,9 +713,7 @@ internal interface ScrollConfig {
 internal expect fun CompositionLocalConsumerModifierNode.platformScrollConfig(): ScrollConfig
 
 // TODO: provide public way to drag by mouse (especially requested for Pager)
-internal val CanDragCalculation: (PointerInputChange) -> Boolean = { change ->
-    change.type != PointerType.Mouse
-}
+internal val CanDragCalculation: (PointerType) -> Boolean = { type -> type != PointerType.Mouse }
 
 /**
  * Holds all scrolling related logic: controls nested scrolling, flinging, overscroll and delta
@@ -988,7 +1048,7 @@ private val FlingBehavior.shouldBeTriggeredByMouseWheel
  * This method returns [ScrollableDefaultFlingBehavior] whose density will be managed by the
  * [ScrollableElement] because it's not created inside [Composable] context. This is different from
  * [rememberPlatformDefaultFlingBehavior] which creates [FlingBehavior] whose density depends on
- * [LocalDensity] and is automatically resolved.
+ * [androidx.compose.ui.platform.LocalDensity] and is automatically resolved.
  */
 internal expect fun platformScrollableDefaultFlingBehavior(): ScrollableDefaultFlingBehavior
 

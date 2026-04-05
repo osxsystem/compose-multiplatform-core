@@ -30,6 +30,7 @@ import kotlinx.browser.window
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.test.runTest
 import org.w3c.dom.HTMLDivElement
+import org.w3c.dom.HTMLElement
 
 class ComposeWindowLifecycleTest : OnCanvasTests {
     @Test
@@ -38,8 +39,10 @@ class ComposeWindowLifecycleTest : OnCanvasTests {
         val canvas = getCanvas()
         canvas.focus()
 
-        val lifecycleOwner = ComposeWindow(
+        val composeWindow = ComposeWindow(
             canvas = canvas,
+            rootNode = getShadowRoot(),
+            layerRoot = document.createElement("div") as HTMLElement,
             interopContainerElement = document.createElement("div") as HTMLDivElement,
             a11yContainerElement = null,
             content = {},
@@ -49,7 +52,8 @@ class ComposeWindowLifecycleTest : OnCanvasTests {
 
         val eventsChannel = Channel<Lifecycle.Event>(10)
 
-        lifecycleOwner.lifecycle.addObserver(object : LifecycleEventObserver {
+        val lifecycle = composeWindow.archComponentsOwner.lifecycle
+        lifecycle.addObserver(object : LifecycleEventObserver {
             override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
                 eventsChannel.sendFromScope(event)
             }

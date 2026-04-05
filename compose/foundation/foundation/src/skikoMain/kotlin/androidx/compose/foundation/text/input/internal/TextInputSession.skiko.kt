@@ -26,6 +26,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 import androidx.compose.ui.platform.PlatformTextInputSession
 import androidx.compose.ui.platform.ViewConfiguration
@@ -50,7 +51,8 @@ internal actual suspend fun PlatformTextInputSession.platformSpecificTextInputSe
     onImeAction: ((ImeAction) -> Unit)?,
     updateSelectionState: (() -> Unit)?,
     stylusHandwritingTrigger: MutableSharedFlow<Unit>?,
-    viewConfiguration: ViewConfiguration?
+    viewConfiguration: ViewConfiguration?,
+    updateTouchMode: (Boolean) -> Unit,
 ): Nothing {
     val editProcessor = EditProcessor()
     fun onEditCommand(commands: List<EditCommand>) {
@@ -99,6 +101,8 @@ internal actual suspend fun PlatformTextInputSession.platformSpecificTextInputSe
 
         fun textClippingRectInRoot() = layoutState.coreNodeCoordinates?.boundsInRoot()
 
+        fun unclippedTextOffsetInRoot() = layoutState.textLayoutNodeCoordinates?.positionInRoot()
+
         startInputMethod(
             SkikoPlatformTextInputMethodRequest(
                 value = { state.untransformedText.toTextFieldValue() },
@@ -110,6 +114,7 @@ internal actual suspend fun PlatformTextInputSession.platformSpecificTextInputSe
                 focusedRectInRoot = ::focusedRectInRoot,
                 textFieldRectInRoot = ::textFieldRectInRoot,
                 textClippingRectInRoot = ::textClippingRectInRoot,
+                unclippedTextOffsetInRoot = ::unclippedTextOffsetInRoot,
                 editText = ::editText
             )
         )
@@ -144,7 +149,6 @@ private inline fun (() -> TextFieldCharSequence).asTextEditorState() = object : 
 
 @OptIn(ExperimentalComposeUiApi::class)
 private fun TextEditingScope(buffer: TextFieldBuffer) = object : TextEditingScope {
-
     private var TextFieldBuffer.cursor: Int
         get() = if (selection.collapsed) selection.end else -1
         set(value) {
@@ -234,5 +238,6 @@ internal data class SkikoPlatformTextInputMethodRequest(
     override val focusedRectInRoot: () -> Rect?,
     override val textFieldRectInRoot: () -> Rect?,
     override val textClippingRectInRoot: () -> Rect?,
+    override val unclippedTextOffsetInRoot: () -> Offset?,
     override val editText: (block: TextEditingScope.() -> Unit) -> Unit
 ): PlatformTextInputMethodRequest

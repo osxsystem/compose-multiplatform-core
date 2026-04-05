@@ -22,6 +22,8 @@ import androidx.compose.ui.text.style.ResolvedTextDirection
 import androidx.compose.ui.text.style.TextDirection
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlinx.test.IgnoreJsTarget
+import kotlinx.test.IgnoreWasmTarget
 
 class SkiaParagraphIntrinsicsTest {
 

@@ -15,6 +15,7 @@
  */
 package androidx.compose.remote.core.operations.layout.modifiers;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.WireBuffer;
@@ -29,6 +30,7 @@ import org.jspecify.annotations.NonNull;
 import java.util.List;
 
 /** Set the min / max width dimension on a component */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class WidthInModifierOperation extends DimensionInModifierOperation {
     private static final int OP_CODE = Operations.MODIFIER_WIDTH_IN;
     public static final String CLASS_NAME = "WidthInModifierOperation";
@@ -79,7 +81,7 @@ public class WidthInModifierOperation extends DimensionInModifierOperation {
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Layout Operations", OP_CODE, "WidthInModifierOperation")
+        doc.operation("Modifier Operations", OP_CODE, CLASS_NAME)
                 .description("Add additional constraints to the width")
                 .field(DocumentedOperation.FLOAT, "min", "The minimum width, -1 if not applied")
                 .field(DocumentedOperation.FLOAT, "max", "The maximum width, -1 if not applied");

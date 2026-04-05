@@ -26,7 +26,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -52,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -356,7 +356,7 @@ class ScrollbarTest {
         )
     }
 
-    // See https://github.com/JetBrains/compose-jb/issues/2640
+    // See https://youtrack.jetbrains.com/issue/CMP-2640
     @Test
     fun `drag scrollbar to bottom with content padding`() {
         val listState = LazyListState()
@@ -390,7 +390,7 @@ class ScrollbarTest {
         assertEquals(0, firstVisibleItem.offset)
     }
 
-    // See https://github.com/JetBrains/compose-jb/issues/2679
+    // See https://youtrack.jetbrains.com/issue/CMP-2679
     @Test
     fun `drag scrollbar to bottom and top with large and small items`() {
         val listState = LazyListState()
@@ -435,7 +435,7 @@ class ScrollbarTest {
     }
 
     // TODO(demin): write a test when we support DesktopComposeTestRule.mainClock:
-    //  see https://github.com/JetBrains/compose-jb/issues/637
+    //  see https://youtrack.jetbrains.com/issue/CMP-6249
 //    fun `move mouse to the slider and drag it`() {
 //        ...
 //        rule.performMouseMove(0, 25)
@@ -866,38 +866,38 @@ class ScrollbarTest {
         rule.setContent {
             // Set up a text field that is exactly 10 lines tall, with text that has 20 lines,
             // Scrollbar thumb should be 50.dp -- half the scrollbar height
-            Row{
-                Box(
-                    modifier = Modifier.width(100.dp)
-                ){
-                    var text by remember {
-                        mutableStateOf(
-                            TextFieldValue(
-                                buildString {
-                                    repeat(19) { // 20 lines including the last empty one
-                                        append("A\n")
-                                    }
+            Box(
+                modifier = Modifier.width(100.dp)
+            ) {
+                var text by remember {
+                    mutableStateOf(
+                        TextFieldValue(
+                            buildString {
+                                repeat(19) { // 20 lines including the last empty one
+                                    append("A\n")
                                 }
-                            )
+                            }
                         )
-                    }
-                    BasicTextField(
-                        value = text,
-                        onValueChange = {
-                            text = it
-                        },
-                        scrollState = scrollState,
-                        maxLines = 10,  // Make sure not to give the text field any pixel height
-                        modifier = Modifier
-                            .testTag("textfield"),
                     )
                 }
+                BasicTextField(
+                    value = text,
+                    onValueChange = {
+                        text = it
+                    },
+                    scrollState = scrollState,
+                    maxLines = 10,  // Make sure not to give the text field any pixel height
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("textfield"),
+                )
 
                 VerticalScrollbar(
                     adapter = rememberScrollbarAdapter(scrollState),
                     modifier = Modifier
                         .width(10.dp)
                         .height(100.dp)
+                        .align(Alignment.CenterEnd)
                         .testTag("scrollbar")
                 )
             }

@@ -16,9 +16,18 @@
 
 package androidx.compose.ui.platform
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.InternalComposeApi
+import androidx.compose.runtime.LocalHostDefaultProvider
+import androidx.compose.runtime.ProvidedValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.LocalSaveableStateRegistry
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.InternalComposeUiApi
 import androidx.lifecycle.LifecycleOwner
+import androidx.savedstate.compose.LocalSavedStateRegistryOwner
 
 /**
  * The CompositionLocal containing the current [LifecycleOwner].
@@ -26,18 +35,20 @@ import androidx.lifecycle.LifecycleOwner
 @Deprecated(
     "Moved to lifecycle-runtime-compose library in androidx.lifecycle.compose package.",
     ReplaceWith("androidx.lifecycle.compose.LocalLifecycleOwner"),
+    level = DeprecationLevel.HIDDEN
 )
 actual val LocalLifecycleOwner get() = androidx.lifecycle.compose.LocalLifecycleOwner
 
 /**
- * The CompositionLocal that provides information about Screen Reader state associated with current
- * scene.
+ * The CompositionLocal that provides information about Screen Reader state associated with
+ * the current scene.
  */
 @InternalComposeUiApi
 val LocalPlatformScreenReader = staticCompositionLocalOf<PlatformScreenReader> {
     error("CompositionLocal LocalPlatformScreenReader not present")
 }
 
+// TODO: Remove as part of https://youtrack.jetbrains.com/issue/CMP-9379
 /**
  * The CompositionLocal that provides information about window insets associated with current
  * scene.
@@ -45,4 +56,39 @@ val LocalPlatformScreenReader = staticCompositionLocalOf<PlatformScreenReader> {
 @InternalComposeUiApi
 val LocalPlatformWindowInsets = staticCompositionLocalOf<PlatformWindowInsets> {
     error("CompositionLocal LocalPlatformWindowInsets not present")
+}
+
+@OptIn(InternalComposeApi::class)
+@Composable
+internal fun ProvidePlatformCompositionLocals(
+    vararg values: ProvidedValue<*>,
+    platformContext: PlatformContext,
+    content: @Composable () -> Unit,
+) {
+    val saveableStateRegistry = remember(platformContext) {
+        DisposableSaveableStateRegistry(
+            id = "ComposeContainer",
+            savedStateRegistryOwner = platformContext.architectureComponentsOwner.savedStateRegistryOwner
+        )
+    }
+    DisposableEffect(platformContext) {
+        //save a reference to dispose of a right object
+        val registry = saveableStateRegistry
+        onDispose { registry.dispose() }
+    }
+
+    val hostDefaultProvider = remember(platformContext) {
+        HostDefaultProviderImpl(platformContext)
+    }
+
+    CompositionLocalProvider(
+        *values,
+        LocalPlatformScreenReader provides platformContext.screenReader,
+        LocalPlatformWindowInsets provides platformContext.windowInsets,
+        androidx.lifecycle.compose.LocalLifecycleOwner provides platformContext.architectureComponentsOwner.lifecycleOwner,
+        LocalSavedStateRegistryOwner provides platformContext.architectureComponentsOwner.savedStateRegistryOwner,
+        LocalSaveableStateRegistry provides saveableStateRegistry,
+        LocalHostDefaultProvider provides hostDefaultProvider,
+        content = content,
+    )
 }

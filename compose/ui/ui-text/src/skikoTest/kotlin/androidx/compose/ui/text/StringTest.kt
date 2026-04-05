@@ -19,6 +19,8 @@ package androidx.compose.ui.text
 import androidx.compose.ui.text.intl.Locale
 import androidx.compose.ui.text.intl.LocaleList
 import kotlin.test.*
+import kotlinx.test.IgnoreJsTarget
+import kotlinx.test.IgnoreWasmTarget
 
 class StringTest {
 

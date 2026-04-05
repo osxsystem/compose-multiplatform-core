@@ -17,6 +17,7 @@ package androidx.compose.remote.core.types;
 
 import static androidx.compose.remote.core.documentation.DocumentedOperation.LONG;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteContext;
@@ -31,6 +32,7 @@ import org.jspecify.annotations.NonNull;
 import java.util.List;
 
 /** Used to represent a long */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class LongConstant extends Operation implements Serializable {
     private static final String CLASS_NAME = "LongConstant";
 
@@ -128,9 +130,9 @@ public class LongConstant extends Operation implements Serializable {
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Expressions Operations", OP_CODE, "LongConstant")
-                .description("A boolean and its associated id")
-                .field(DocumentedOperation.INT, "id", "id of Int")
+        doc.operation("Data Operations", OP_CODE, "LongConstant")
+                .description("A long and its associated id")
+                .field(DocumentedOperation.INT, "id", "id of the Long constant")
                 .field(LONG, "value", "The long Value");
     }
 

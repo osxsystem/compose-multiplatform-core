@@ -17,6 +17,7 @@ package androidx.compose.remote.core.types;
 
 import static androidx.compose.remote.core.documentation.DocumentedOperation.BYTE;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteContext;
@@ -31,6 +32,7 @@ import org.jspecify.annotations.NonNull;
 import java.util.List;
 
 /** Used to represent a boolean */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class BooleanConstant extends Operation implements Serializable {
     private static final String CLASS_NAME = "BooleanConstant";
 
@@ -123,7 +125,7 @@ public class BooleanConstant extends Operation implements Serializable {
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Expressions Operations", OP_CODE, "BooleanConstant")
+        doc.operation("Data Operations", OP_CODE, "BooleanConstant")
                 .description("A boolean and its associated id")
                 .field(DocumentedOperation.INT, "id", "id of Int")
                 .field(BYTE, "value", "8-bit 0 or 1");

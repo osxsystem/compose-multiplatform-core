@@ -15,11 +15,14 @@
  */
 package androidx.compose.remote.core;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.operations.FloatExpression;
 import androidx.compose.remote.core.operations.ShaderData;
 import androidx.compose.remote.core.operations.Theme;
 import androidx.compose.remote.core.operations.Utils;
 import androidx.compose.remote.core.operations.layout.Component;
+import androidx.compose.remote.core.operations.layout.managers.LayoutManager;
+import androidx.compose.remote.core.operations.layout.utils.DebugLog;
 import androidx.compose.remote.core.operations.utilities.ArrayAccess;
 import androidx.compose.remote.core.operations.utilities.CollectionsAccess;
 import androidx.compose.remote.core.operations.utilities.DataMap;
@@ -28,11 +31,6 @@ import androidx.compose.remote.core.operations.utilities.IntMap;
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
-import java.time.Clock;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 
 /**
@@ -42,16 +40,17 @@ import java.util.ArrayList;
  *
  * <p>We also contain a PaintContext, so that any operation can draw as needed.
  */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public abstract class RemoteContext {
     private static final int MAX_OP_COUNT = 20_000; // Maximum cmds per frame
-    private @NonNull Clock mClock;
+    private @NonNull RemoteClock mClock;
     protected @NonNull CoreDocument mDocument;
     public @NonNull RemoteComposeState mRemoteComposeState =
             new RemoteComposeState(); // todo, is this a valid use of RemoteComposeState -- bbade@
     private long mDocLoadTime;
     @Nullable protected PaintContext mPaintContext = null;
     protected float mDensity = Float.NaN;
-
+    private int mPaintTheme = -3;
     @NonNull ContextMode mMode = ContextMode.UNSET;
 
     int mDebug = 0;
@@ -61,6 +60,10 @@ public abstract class RemoteContext {
 
     public float mWidth = 0f;
     public float mHeight = 0f;
+
+    public float mViewportWidth = 0f;
+    public float mViewportHeight = 0f;
+
     private float mAnimationTime;
 
     private boolean mAnimate = true;
@@ -70,11 +73,13 @@ public abstract class RemoteContext {
 
     private boolean mUseChoreographer = true;
 
+    private int mTouchVersion = LayoutManager.DEFAULT_TOUCH_VERSION;
+
     public RemoteContext() {
-        this(new SystemClock());
+        this(RemoteClock.SYSTEM);
     }
 
-    public RemoteContext(@NonNull Clock clock) {
+    public RemoteContext(@NonNull RemoteClock clock) {
         this.mClock = clock;
         setDocLoadTime();
         mDocument = new CoreDocument(clock); // todo: is this a valid way to initialize? bbade@
@@ -104,6 +109,7 @@ public abstract class RemoteContext {
     public void setDensity(float density) {
         if (!Float.isNaN(density) && density > 0) {
             mDensity = density;
+            loadFloat(ID_DENSITY, density);
         }
     }
 
@@ -213,6 +219,23 @@ public abstract class RemoteContext {
      * @param stringName the name of the string to override
      */
     public abstract void clearNamedStringOverride(@NonNull String stringName);
+
+    /**
+     * Set the value of a named Boolean. This overrides the boolean in the document
+     *
+     * @param booleanName the name of the boolean to override
+     * @param value Override the default boolean
+     */
+    public abstract void setNamedBooleanOverride(@NonNull String booleanName, boolean value);
+
+    /**
+     * Allows to clear a named Boolean.
+     *
+     * <p>If an override exists, we revert back to the default value in the document.
+     *
+     * @param booleanName the name of the boolean to override
+     */
+    public abstract void clearNamedBooleanOverride(@NonNull String booleanName);
 
     /**
      * Set the value of a named Integer. This overrides the integer in the document
@@ -370,11 +393,11 @@ public abstract class RemoteContext {
         mUseChoreographer = value;
     }
 
-    public @NonNull Clock getClock() {
+    public @NonNull RemoteClock getClock() {
         return mClock;
     }
 
-    public void setClock(@NonNull Clock clock) {
+    public void setClock(@NonNull RemoteClock clock) {
         this.mClock = clock;
     }
 
@@ -393,6 +416,47 @@ public abstract class RemoteContext {
             }
         }
         putObject(fontId, new FontInfo(fontId, fontData));
+    }
+
+    /**
+     * Set the theme under which it will be painted
+     * @param theme the theme
+     */
+    public void setPaintTheme(int theme) {
+        mPaintTheme = theme;
+    }
+
+    /**
+     * Get the theme under which it will be painted
+     * @return the paint theme
+     */
+    public int getPaintTheme() {
+        return mPaintTheme;
+    }
+
+    /**
+     * Set the touch version
+     * @param touchVersion
+     */
+    public void setTouchVersion(int touchVersion) {
+        mTouchVersion = touchVersion;
+    }
+
+    /**
+     * Get the touch version
+     * @return
+     */
+    public int getTouchVersion() {
+        return mTouchVersion;
+    }
+
+    /**
+     * Return true if the provided feature is enabled in the document
+     * @param feature feature id
+     * @return
+     */
+    public boolean useFeature(short feature) {
+        return mDocument.useFeature(feature);
     }
 
     /** The font information */
@@ -445,6 +509,17 @@ public abstract class RemoteContext {
         this.mMode = mode;
     }
 
+    /**
+     * Create an edge effect
+     * Used in scroll views when hitting start/end of the scroll area
+     *
+     * @param direction : TOP/BOTTOM/LEFT/RIGHT
+     * @return a platform-specific implementation or null
+     */
+    public @Nullable ScrollingEdgeEffect createEdgeEffect(int direction) {
+        return null;
+    }
+
     @Nullable
     public PaintContext getPaintContext() {
         return mPaintContext;
@@ -466,8 +541,13 @@ public abstract class RemoteContext {
         return mDebug == 2;
     }
 
+    public boolean isLayoutDebug() {
+        return mDebug == 3;
+    }
+
     public void setDebug(int debug) {
         this.mDebug = debug;
+        DebugLog.DEBUG_LAYOUT_ON = mDebug == 3;
     }
 
     /**
@@ -541,6 +621,14 @@ public abstract class RemoteContext {
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // Data handling
     ///////////////////////////////////////////////////////////////////////////////////////////////
+
+    /**
+     * Mark the variable as dirty
+     * @param id
+     */
+    public void markVariableDirty(int id) {
+        // empty
+    }
 
     /**
      * Save a bitmap under an imageId
@@ -685,6 +773,7 @@ public abstract class RemoteContext {
     /**
      * Notify commands with variables have changed
      *
+     *
      * @return the number of ms to next update
      */
     public abstract int updateOps();
@@ -753,6 +842,12 @@ public abstract class RemoteContext {
 
     /** The YEAR e.g. 2026 */
     public static final int ID_YEAR = 35;
+
+    /** First baseline (for alignment) */
+    public static final int ID_FIRST_BASELINE = 36;
+
+    /** last baseline (for alignment) */
+    public static final int ID_LAST_BASELINE = 37;
 
     public static final float FLOAT_DENSITY = Utils.asNan(ID_DENSITY);
 
@@ -851,6 +946,12 @@ public abstract class RemoteContext {
     /** The time in seconds since the epoch. */
     public static final long INT_EPOCH_SECOND = ((long) ID_EPOCH_SECOND) + 0x100000000L;
 
+    /** First Baseline */
+    public static final float FIRST_BASELINE = Utils.asNan(ID_FIRST_BASELINE);
+
+    /** Last Baseline */
+    public static final float LAST_BASELINE = Utils.asNan(ID_LAST_BASELINE);
+
     ///////////////////////////////////////////////////////////////////////////////////////////////
     // Click handling
     ///////////////////////////////////////////////////////////////////////////////////////////////
@@ -864,61 +965,6 @@ public abstract class RemoteContext {
     public static boolean isTime(float fl) {
         int value = Utils.idFromNan(fl);
         return value >= ID_CONTINUOUS_SEC && value <= ID_DAY_OF_MONTH;
-    }
-
-    /**
-     * get the time from a float id that indicates a type of time
-     *
-     * @param fl id of the type of time information requested
-     * @return various time information such as seconds or min
-     */
-    public static float getTime(float fl) {
-        LocalDateTime dateTime =
-                LocalDateTime.now(ZoneId.systemDefault()); // TODO, pass in a timezone explicitly?
-        // This define the time in the format
-        // seconds run from Midnight=0 quantized to seconds hour 0..3599
-        // minutes run from Midnight=0 quantized to minutes 0..1439
-        // hours run from Midnight=0 quantized to Hours 0-23
-        // CONTINUOUS_SEC is seconds from midnight looping every hour 0-3600
-        // CONTINUOUS_SEC is accurate to milliseconds due to float precession
-        // ID_OFFSET_TO_UTC is the offset from UTC in sec (typically / 3600f)
-        int value = Utils.idFromNan(fl);
-        int month = dateTime.getMonth().getValue();
-        int hour = dateTime.getHour();
-        int minute = dateTime.getMinute();
-        int seconds = dateTime.getSecond();
-        int currentMinute = hour * 60 + minute;
-        int currentSeconds = minute * 60 + seconds;
-        float sec = currentSeconds + dateTime.getNano() * 1E-9f;
-        int day_week = dateTime.getDayOfWeek().getValue();
-        int day_month = dateTime.getDayOfMonth();
-
-        ZoneId zone = ZoneId.systemDefault();
-        OffsetDateTime offsetDateTime = dateTime.atZone(zone).toOffsetDateTime();
-        ZoneOffset offset = offsetDateTime.getOffset();
-        switch (value) {
-            case ID_OFFSET_TO_UTC:
-                return offset.getTotalSeconds();
-            case ID_CONTINUOUS_SEC:
-                return sec;
-            case ID_TIME_IN_SEC:
-                return currentSeconds;
-            case ID_TIME_IN_MIN:
-                return currentMinute;
-            case ID_TIME_IN_HR:
-                return hour;
-            case ID_CALENDAR_MONTH:
-                return month;
-            case ID_DAY_OF_MONTH:
-                return day_month;
-            case ID_WEEK_DAY:
-                return day_week;
-            case ID_DAY_OF_YEAR:
-                return dateTime.getDayOfYear();
-            case ID_YEAR:
-                return dateTime.getYear();
-        }
-        return fl;
     }
 
     /**

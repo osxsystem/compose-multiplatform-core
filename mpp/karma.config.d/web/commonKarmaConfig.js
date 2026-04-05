@@ -3,7 +3,19 @@ function configLaunchers(config) {
     config.customLaunchers = {
         ChromeForComposeTests: {
             base: "Chrome",
-            flags: ["--no-sandbox", "--disable-search-engine-choice-screen"]
+            flags: [
+                "--no-sandbox",
+                "--disable-search-engine-choice-screen",
+
+                // "CI-stabilizer" :D - otherwise webgl2 context is null:
+                "--disable-setuid-sandbox",
+                "--enable-webgl",
+                "--ignore-gpu-blocklist",
+                "--in-process-gpu"
+            ]
+        },
+        ChromiumForComposeTests: {
+            base: "Chromium"
         },
         FirefoxForComposeTests: {
             base: "Firefox",
@@ -23,6 +35,9 @@ function configLaunchers(config) {
     config.browsers = [];
     if (process.env["jetbrains.androidx.web.tests.enableChrome"]) {
         config.browsers.push("ChromeForComposeTests");
+    }
+    if (process.env["jetbrains.androidx.web.tests.enableChromium"]) {
+        config.browsers.push("ChromiumForComposeTests");
     }
     if (process.env["jetbrains.androidx.web.tests.enableFirefox"]) {
         config.browsers.push("FirefoxForComposeTests");

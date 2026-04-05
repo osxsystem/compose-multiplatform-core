@@ -33,6 +33,7 @@ import androidx.compose.foundation.internal.checkPreconditionNotNull
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.text.contextmenu.data.TextContextMenuData
 import androidx.compose.foundation.text.contextmenu.data.TextContextMenuItem
+import androidx.compose.foundation.text.contextmenu.data.TextContextMenuKeys
 import androidx.compose.foundation.text.contextmenu.data.TextContextMenuSeparator
 import androidx.compose.foundation.text.contextmenu.data.TextContextMenuSession
 import androidx.compose.foundation.text.contextmenu.data.TextContextMenuTextClassificationItem
@@ -151,6 +152,7 @@ internal class AndroidTextContextMenuToolbarProvider(
     private var actionMode: ActionMode? = null
 
     private var startActionModeRunnable: Runnable? = null
+    private var finishActionModeRunnable: Runnable? = null
 
     override suspend fun showTextContextMenu(dataProvider: TextContextMenuDataProvider) {
         mutatorMutex.mutate {
@@ -180,7 +182,15 @@ internal class AndroidTextContextMenuToolbarProvider(
                 session.awaitClose()
             } finally {
                 snapshotStateObserver.clear()
-                actionMode?.finish()
+                if (Looper.myLooper() !== view.handler?.looper) {
+                    val finishActionModeRunnable =
+                        finishActionModeRunnable
+                            ?: Runnable { actionMode?.finish() }
+                                .also { finishActionModeRunnable = it }
+                    view.post(finishActionModeRunnable)
+                } else {
+                    actionMode?.finish()
+                }
                 startActionModeRunnable?.let { view.removeCallbacks(it) }
                 actionMode = null
             }
@@ -216,13 +226,13 @@ internal class AndroidTextContextMenuToolbarProvider(
         observeReadsAndGet("dataBuilder", onDataChange) { dataProvider.data() }
 
     private fun observeAndGetBounds(dataProvider: TextContextMenuDataProvider): Rect =
-        observeReadsAndGet("positioner", onPositionChange) { calculateBoundsInRoot(dataProvider) }
-
-    private fun calculateBoundsInRoot(dataProvider: TextContextMenuDataProvider): Rect {
-        val destinationCoordinates = coordinatesProvider()
-        val localBoundingBox = dataProvider.contentBounds(destinationCoordinates)
-        return localBoundingBox.translate(destinationCoordinates.positionInRoot())
-    }
+        observeReadsAndGet("positioner", onPositionChange) {
+            val destinationCoordinates =
+                coordinatesProvider().takeIf { it.isAttached }
+                    ?: return@observeReadsAndGet Rect.Zero
+            val localBoundingBox = dataProvider.contentBounds(destinationCoordinates)
+            localBoundingBox.translate(destinationCoordinates.positionInRoot())
+        }
 
     /**
      * Same functionality as [SnapshotStateObserver.observeReads] except this function returns the
@@ -275,12 +285,21 @@ internal class AndroidTextContextMenuToolbarProvider(
                 when (component) {
                     is TextContextMenuItem -> {
                         val orderId = currentOrderId++
+                        val itemId =
+                            when (component.key) {
+                                TextContextMenuKeys.CutKey -> android.R.id.cut
+                                TextContextMenuKeys.CopyKey -> android.R.id.copy
+                                TextContextMenuKeys.PasteKey -> android.R.id.paste
+                                TextContextMenuKeys.SelectAllKey -> android.R.id.selectAll
+                                TextContextMenuKeys.AutofillKey -> android.R.id.autofill
+                                else -> orderId
+                            }
                         val menuItem =
                             menu.add(
                                 /* groupId = */ currentGroupId,
                                 // itemId must be unique so that onClick listeners
                                 // can be called on the item itself.
-                                /* itemId = */ orderId,
+                                /* itemId = */ itemId,
                                 /* order = */ orderId,
                                 /* title = */ component.label,
                             )

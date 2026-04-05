@@ -17,6 +17,7 @@ package androidx.compose.remote.core.operations;
 
 import static androidx.compose.remote.core.documentation.DocumentedOperation.FLOAT;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.PaintContext;
@@ -40,6 +41,7 @@ import java.util.List;
  * Works with PathAppend.
  * TODO implement winding rule
  */
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class PathCreate extends PaintOperation implements VariableSupport, Serializable {
     private static final int OP_CODE = Operations.PATH_CREATE;
     private static final String CLASS_NAME = "PathCreate";
@@ -47,7 +49,7 @@ public class PathCreate extends PaintOperation implements VariableSupport, Seria
     float[] mFloatPath;
     float[] mOutputPath;
 
-    PathCreate(int instanceId, float startX, float startY) {
+    public PathCreate(int instanceId, float startX, float startY) {
         mInstanceId = instanceId;
         mFloatPath = new float[] {PathData.MOVE_NAN, startX, startY};
         mOutputPath = Arrays.copyOf(mFloatPath, mFloatPath.length);
@@ -173,11 +175,12 @@ public class PathCreate extends PaintOperation implements VariableSupport, Seria
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Data Operations", OP_CODE, CLASS_NAME)
-                .description("Encode a Path ")
-                .field(DocumentedOperation.INT, "id", "id of path")
-                .field(FLOAT, "startX", "initial start x")
-                .field(FLOAT, "startX", "initial start y");
+        doc.operation("Canvas Operations", OP_CODE, CLASS_NAME)
+                .additionalDocumentation("path_create")
+                .description("Start the creation of a dynamic path")
+                .field(DocumentedOperation.INT, "id", "The ID of the path to create")
+                .field(FLOAT, "startX", "The X coordinate of the starting point")
+                .field(FLOAT, "startY", "The Y coordinate of the starting point");
     }
 
     /**

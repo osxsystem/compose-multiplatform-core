@@ -18,6 +18,7 @@ package androidx.compose.remote.core.operations;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.FLOAT;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.INT;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.PaintContext;
@@ -32,6 +33,7 @@ import org.jspecify.annotations.NonNull;
 
 import java.util.List;
 
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
 public class DrawBitmap extends PaintOperation implements VariableSupport {
     private static final int OP_CODE = Operations.DRAW_BITMAP;
     private static final String CLASS_NAME = "DrawBitmap";
@@ -172,14 +174,14 @@ public class DrawBitmap extends PaintOperation implements VariableSupport {
      * @param doc to append the description to.
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
-        doc.operation("Draw Operations", OP_CODE, CLASS_NAME)
+        doc.operation("Canvas Operations", OP_CODE, CLASS_NAME)
                 .description("Draw a bitmap")
-                .field(INT, "id", "id of float")
+                .field(INT, "imageId", "The ID of the bitmap")
                 .field(FLOAT, "left", "The left side of the image")
                 .field(FLOAT, "top", "The top of the image")
                 .field(FLOAT, "right", "The right side of the image")
                 .field(FLOAT, "bottom", "The bottom of the image")
-                .field(INT, "descriptionId", "id of string");
+                .field(INT, "descriptionId", "The ID of the content description string");
     }
 
     @Override

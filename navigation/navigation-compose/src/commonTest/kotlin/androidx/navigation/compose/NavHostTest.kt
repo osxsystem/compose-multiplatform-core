@@ -28,6 +28,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.State
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -72,7 +74,7 @@ class NavHostTest {
     @Test
     fun testSingleDestinationSet() = runComposeUiTestOnUiThread {
         lateinit var navController: NavHostController
-        setContentWithLifecycleOwner {
+        setContent {
             navController = createNavController()
 
             NavHost(navController, startDestination = "first") { test("first") }
@@ -86,7 +88,7 @@ class NavHostTest {
     @Test
     fun testNavigate() = runComposeUiTestOnUiThread {
         lateinit var navController: NavHostController
-        setContentWithLifecycleOwner {
+        setContent {
             navController = createNavController()
 
             NavHost(navController, startDestination = "first") {
@@ -111,7 +113,7 @@ class NavHostTest {
         lateinit var navController: NavHostController
         val text = "myButton"
         var counter = 0
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             var state by remember { mutableStateOf(0) }
             Column(Modifier.fillMaxSize()) {
@@ -156,7 +158,7 @@ class NavHostTest {
     @Test
     fun testPop() = runComposeUiTestOnUiThread {
         lateinit var navController: TestNavHostController
-        setContentWithLifecycleOwner {
+        setContent {
             navController = createNavController()
 
             NavHost(navController, startDestination = "first") {
@@ -179,7 +181,7 @@ class NavHostTest {
     fun testChangeStartDestination() = runComposeUiTestOnUiThread {
         lateinit var navController: TestNavHostController
         lateinit var state: MutableState<String>
-        setContentWithLifecycleOwner {
+        setContent {
             state = remember { mutableStateOf("first") }
             navController = createNavController()
 
@@ -202,7 +204,7 @@ class NavHostTest {
     fun testSameControllerAfterDisposingNavHost() = runComposeUiTestOnUiThread {
         lateinit var navController: TestNavHostController
         lateinit var state: MutableState<Int>
-        setContentWithLifecycleOwner {
+        setContent {
             state = remember { mutableStateOf(0) }
             navController = createNavController()
             if (state.value == 0) {
@@ -229,7 +231,7 @@ class NavHostTest {
     fun testDialogSavedAfterConfigChange() = runComposeUiTestOnUiThread {
         lateinit var navController: NavHostController
         val defaultText = "dialogText"
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             NavHost(navController, startDestination = "dialog") {
                 dialog("dialog") { Text(defaultText) }
@@ -307,7 +309,7 @@ class NavHostTest {
         var lifecycleOwner = TestLifecycleOwner(Lifecycle.State.RESUMED)
         lateinit var state: MutableState<Int>
         lateinit var viewModel: TestViewModel
-        setContentWithLifecycleOwner {
+        setContent {
             state = remember { mutableStateOf(0) }
             CompositionLocalProvider(LocalLifecycleOwner provides lifecycleOwner) {
                 navController = rememberNavController()
@@ -351,7 +353,7 @@ class NavHostTest {
         lateinit var viewModel_second: TestViewModel
         lateinit var viewModel_third: TestViewModel
 
-        setContentWithLifecycleOwner {
+        setContent {
             state = remember { mutableStateOf(0) }
             CompositionLocalProvider(LocalLifecycleOwner provides lifecycleOwner) {
                 navController = rememberNavController()
@@ -410,7 +412,7 @@ class NavHostTest {
         var increment = 0
         var numberOnScreen1 = -1
         lateinit var navController: NavHostController
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
 
             NavHost(navController, startDestination = "First") {
@@ -437,7 +439,7 @@ class NavHostTest {
         var increment = 0
         var numberOnScreen2 = -1
         lateinit var navController: NavHostController
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
 
             NavHost(navController, startDestination = "First") {
@@ -467,7 +469,7 @@ class NavHostTest {
         lateinit var graph1: NavGraph
         lateinit var graph2: NavGraph
         lateinit var navController: NavHostController
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             graph1 =
                 navController.createGraph(startDestination = "First") {
@@ -506,7 +508,7 @@ class NavHostTest {
         lateinit var graph2: NavGraph
         lateinit var navController: NavHostController
 
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             graph1 =
                 navController.createGraph(startDestination = "First") {
@@ -555,7 +557,7 @@ class NavHostTest {
         lateinit var graph2: NavGraph
         lateinit var navController: NavHostController
 
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             graph1 =
                 navController.createGraph(route = "route", startDestination = "First") {
@@ -604,7 +606,7 @@ class NavHostTest {
         lateinit var graph2: NavGraph
         lateinit var navController: NavHostController
 
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             graph1 =
                 navController.createGraph(startDestination = "First") {
@@ -666,7 +668,7 @@ class NavHostTest {
         lateinit var graph2: NavGraph
         lateinit var navController: NavHostController
 
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             graph1 =
                 navController.createGraph(route = "Root", startDestination = "First") {
@@ -727,7 +729,7 @@ class NavHostTest {
             lateinit var graph2: NavGraph
             lateinit var navController: NavHostController
 
-            setContentWithLifecycleOwner {
+            setContent {
                 navController = rememberNavController()
                 graph1 =
                     navController.createGraph(route = "Root", startDestination = "First") {
@@ -796,7 +798,7 @@ class NavHostTest {
         lateinit var graph1: NavGraph
         lateinit var graph2: NavGraph
         lateinit var navController: NavHostController
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             graph1 =
                 navController.createGraph(route = "Root", startDestination = "First") {
@@ -845,7 +847,7 @@ class NavHostTest {
 
         mainClock.autoAdvance = false
 
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             NavHost(navController, startDestination = first) {
                 composable(first) { BasicText(first) }
@@ -924,7 +926,7 @@ class NavHostTest {
     fun testNavHostAnimationsBackInterrupt() = runComposeUiTestOnUiThread {
         lateinit var navController: NavHostController
 
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             NavHost(navController, startDestination = first) {
                 composable(first) {
@@ -967,7 +969,7 @@ class NavHostTest {
         lateinit var navController: NavHostController
         lateinit var text: MutableState<String>
 
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             NavHost(navController, "start") {
                 composable("start") {
@@ -1010,7 +1012,7 @@ class NavHostTest {
         lateinit var navController: NavHostController
         lateinit var model: TestViewModel
 
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             NavHost(navController, first) {
                 composable(first) {}
@@ -1043,7 +1045,7 @@ class NavHostTest {
         lateinit var navController: NavHostController
         lateinit var model: TestViewModel
 
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             NavHost(navController, first) {
                 composable(first) {}
@@ -1069,7 +1071,7 @@ class NavHostTest {
         lateinit var navController: NavHostController
         lateinit var model: TestViewModel
 
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             // this causes a recompose
             val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -1101,7 +1103,7 @@ class NavHostTest {
     fun testNestedNavHostNullLambda() = runComposeUiTestOnUiThread {
         lateinit var navController: NavHostController
 
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             NavHost(navController, startDestination = first) {
                 composable(first) { BasicText(first) }
@@ -1118,7 +1120,7 @@ class NavHostTest {
     fun navBackStackEntryLifecycleTest() = runComposeUiTestOnUiThread {
         var stopCount = 0
         lateinit var navController: NavHostController
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             NavHost(navController, startDestination = "First") {
                 composable("First") {
@@ -1146,7 +1148,7 @@ class NavHostTest {
     fun navBackStackEntrySingleTopLifecycleTest() = runComposeUiTestOnUiThread {
         var lastEvent: Lifecycle.Event? = null
         lateinit var navController: NavHostController
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             NavHost(navController, startDestination = "First") {
                 composable("First") {
@@ -1181,7 +1183,7 @@ class NavHostTest {
     @Test
     fun testPopWithBackHandler() = runComposeUiTestOnUiThread {
         lateinit var navController: NavHostController
-        setContentWithLifecycleOwner {
+        setContent {
             navController = rememberNavController()
             val innerNavController = rememberNavController()
             NavHost(navController, startDestination = first) {
@@ -1213,6 +1215,50 @@ class NavHostTest {
         runOnUiThread {
             assertThat(navController.currentDestination?.route).isEqualTo(first)
         }
+    }
+
+    @Test
+    fun testLifecycleStateOnAtomicNavigateToComposableAndDialog() = runComposeUiTestOnUiThread {
+        lateinit var navController: NavHostController
+        lateinit var screen1Lifecycle: State<Lifecycle.State>
+        lateinit var screen2Lifecycle: State<Lifecycle.State>
+        lateinit var dialogLifecycle: State<Lifecycle.State>
+        setContent {
+            navController = rememberNavController()
+            NavHost(navController, startDestination = "screen1") {
+                composable("screen1") {
+                    screen1Lifecycle = it.lifecycle.currentStateFlow.collectAsState()
+                    Text("screen1")
+                }
+                composable("screen2") {
+                    screen2Lifecycle = it.lifecycle.currentStateFlow.collectAsState()
+                    Text("screen1")
+                }
+                dialog("dialog") {
+                    dialogLifecycle = it.lifecycle.currentStateFlow.collectAsState()
+                    Text("dialog")
+                }
+            }
+        }
+
+        waitForIdle()
+        onNodeWithText("screen1").assertIsDisplayed()
+        assertThat(screen1Lifecycle.value).isEqualTo(Lifecycle.State.RESUMED)
+
+        runOnUiThread {
+            navController.navigate("screen2")
+            navController.navigate("dialog")
+        }
+
+        waitForIdle()
+        onNodeWithText("dialog").assertIsDisplayed()
+        assertThat(screen2Lifecycle.value).isEqualTo(Lifecycle.State.STARTED)
+        assertThat(dialogLifecycle.value).isEqualTo(Lifecycle.State.RESUMED)
+
+        runOnUiThread { navController.popBackStack() }
+
+        waitForIdle()
+        assertThat(screen2Lifecycle.value).isEqualTo(Lifecycle.State.RESUMED)
     }
 
     @Composable

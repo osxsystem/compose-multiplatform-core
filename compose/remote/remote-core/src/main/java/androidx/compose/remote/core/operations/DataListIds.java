@@ -18,6 +18,7 @@ package androidx.compose.remote.core.operations;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.INT;
 import static androidx.compose.remote.core.documentation.DocumentedOperation.INT_ARRAY;
 
+import androidx.annotation.RestrictTo;
 import androidx.compose.remote.core.Operation;
 import androidx.compose.remote.core.Operations;
 import androidx.compose.remote.core.RemoteContext;
@@ -35,7 +36,9 @@ import org.jspecify.annotations.Nullable;
 import java.util.Arrays;
 import java.util.List;
 
-public class DataListIds extends Operation implements VariableSupport, ArrayAccess, Serializable {
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
+public class DataListIds extends Operation implements VariableSupport, ArrayAccess, ComponentData,
+        Serializable {
     private static final int OP_CODE = Operations.ID_LIST;
     private static final String CLASS_NAME = "IdListData";
     private final int mId;
@@ -107,10 +110,10 @@ public class DataListIds extends Operation implements VariableSupport, ArrayAcce
      */
     public static void documentation(@NonNull DocumentationBuilder doc) {
         doc.operation("Data Operations", OP_CODE, CLASS_NAME)
-                .description("a list of id's")
-                .field(DocumentedOperation.INT, "id", "id the array")
-                .field(INT, "length", "number of ids")
-                .field(INT_ARRAY, "ids[n]", "length", "ids of other variables");
+                .description("A list of IDs")
+                .field(DocumentedOperation.INT, "id", "The ID of the list")
+                .field(INT, "length", "Number of IDs")
+                .field(INT_ARRAY, "ids", "The array of IDs");
     }
 
     @NonNull

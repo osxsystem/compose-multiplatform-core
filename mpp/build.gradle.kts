@@ -1,208 +1,62 @@
-import androidx.build.jetbrains.ArtifactRedirection
-import androidx.build.jetbrains.artifactRedirection
-
-buildscript {
-    repositories {
-        mavenCentral()
-        maven("https://maven.pkg.jetbrains.space/public/p/compose/internal")
-        maven("https://maven.pkg.jetbrains.space/public/p/space/maven")
-    }
-}
+import org.jetbrains.androidx.build.ComposePublishingTask
+import org.jetbrains.androidx.build.ArtifactRedirection
+import org.jetbrains.androidx.build.ComposePlatforms
+import org.jetbrains.androidx.build.ComposeProperties
+import org.jetbrains.androidx.build.JetBrainsPublication
+import org.jetbrains.androidx.build.artifactRedirection
+import org.jetbrains.androidx.build.hasRedirection
 
 // this module depends on all other modules info, so we need to initialize them first
 (rootProject.allprojects - project).forEach {
     evaluationDependsOn(it.path)
 }
 
-open class ComposePublishingTask : AbstractComposePublishingTask() {
-    override fun dependsOnComposeTask(task: String) {
-        dependsOn(task)
-    }
-}
+val libraryToComponents = JetBrainsPublication.libraryToComponents
+val Project.composeComponent get() = JetBrainsPublication.projectPathToComponent[path]
 
-val libraryToComponents = mapOf(
-    "COMPOSE" to listOf(
-        // TODO https://youtrack.jetbrains.com/issue/CMP-1604/Publish-public-collection-annotation-libraries-with-a-separate-version
-        // They are part of COMPOSE versioning
-        ComposeComponent(":annotation:annotation", supportedPlatforms = ComposePlatforms.ALL - ComposePlatforms.ANDROID),
-        ComposeComponent(":collection:collection", supportedPlatforms = ComposePlatforms.ALL - ComposePlatforms.ANDROID),
-
-        ComposeComponent(":compose:animation:animation"),
-        ComposeComponent(":compose:animation:animation-core"),
-        ComposeComponent(":compose:animation:animation-graphics"),
-        ComposeComponent(":compose:foundation:foundation"),
-        ComposeComponent(":compose:foundation:foundation-layout"),
-        ComposeComponent(":compose:material:material"),
-        //ComposeComponent(":compose:material:material-icons-core"),
-        ComposeComponent(":compose:material:material-ripple"),
-        ComposeComponent(":compose:runtime:runtime", supportedPlatforms = ComposePlatforms.ALL),
-        ComposeComponent(":compose:runtime:runtime-saveable", supportedPlatforms = ComposePlatforms.ALL),
-        ComposeComponent(":compose:ui:ui"),
-        ComposeComponent(":compose:ui:ui-geometry"),
-        ComposeComponent(
-            path = ":compose:ui:ui-backhandler",
-            supportedPlatforms = ComposePlatforms.SKIKO_SUPPORT,
-        ),
-        ComposeComponent(":compose:ui:ui-graphics"),
-        ComposeComponent(":compose:ui:ui-test"),
-        ComposeComponent(
-            ":compose:ui:ui-test-junit4",
-            supportedPlatforms = ComposePlatforms.JVM_BASED
-        ),
-        ComposeComponent(":compose:ui:ui-text"),
-        ComposeComponent(":compose:ui:ui-tooling", supportedPlatforms = ComposePlatforms.JVM_BASED),
-        ComposeComponent(
-            ":compose:ui:ui-tooling-data",
-            supportedPlatforms = ComposePlatforms.JVM_BASED
-        ),
-        ComposeComponent(
-            ":compose:ui:ui-tooling-preview",
-            supportedPlatforms = ComposePlatforms.JVM_BASED
-        ),
-        ComposeComponent(
-            ":compose:ui:ui-uikit",
-            supportedPlatforms = ComposePlatforms.UI_KIT
-        ),
-        ComposeComponent(":compose:ui:ui-unit"),
-        ComposeComponent(":compose:ui:ui-util"),
-    ),
-    "COMPOSE_MATERIAL_NAVIGATION" to listOf(
-        ComposeComponent(":compose:material:material-navigation"),
-    ),
-    "COMPOSE_MATERIAL3" to listOf(
-        ComposeComponent(":compose:material3:material3"),
-        ComposeComponent(":compose:material3:material3-window-size-class"),
-        ComposeComponent(":compose:material3:material3-adaptive-navigation-suite"),
-    ),
-    "COMPOSE_MATERIAL3_ADAPTIVE" to listOf(
-        ComposeComponent(":compose:material3:adaptive:adaptive"),
-        ComposeComponent(":compose:material3:adaptive:adaptive-layout"),
-        ComposeComponent(":compose:material3:adaptive:adaptive-navigation"),
-    ),
-    "LIFECYCLE" to listOf(
-        ComposeComponent(
-            path = ":lifecycle:lifecycle-common",
-            // No android target here - jvm artefact will be used for android apps as well
-            supportedPlatforms = ComposePlatforms.ALL_AOSP - ComposePlatforms.ANDROID
-        ),
-        ComposeComponent(
-            path = ":lifecycle:lifecycle-runtime",
-            supportedPlatforms = ComposePlatforms.ALL_AOSP
-        ),
-        ComposeComponent(
-            path = ":lifecycle:lifecycle-viewmodel",
-            supportedPlatforms = ComposePlatforms.ALL_AOSP
-        ),
-        ComposeComponent(":lifecycle:lifecycle-viewmodel-savedstate", supportedPlatforms = ComposePlatforms.ALL_AOSP),
-        ComposeComponent(":lifecycle:lifecycle-runtime-compose", supportedPlatforms = ComposePlatforms.ALL),
-        ComposeComponent(":lifecycle:lifecycle-viewmodel-compose"),
-    ),
-    "NAVIGATION" to listOf(
-        ComposeComponent(":navigation:navigation-compose"),
-        ComposeComponent(":navigation:navigation-common", supportedPlatforms = ComposePlatforms.ALL_AOSP - ComposePlatforms.WINDOWS_NATIVE),
-        ComposeComponent(":navigation:navigation-runtime", supportedPlatforms = ComposePlatforms.ALL_AOSP - ComposePlatforms.WINDOWS_NATIVE),
-    ),
-    "NAVIGATION_3" to listOf(
-        ComposeComponent(":navigation3:navigation3-ui"),
-    ),
-    "NAVIGATION_EVENT" to listOf(
-        ComposeComponent(":navigationevent:navigationevent-compose"),
-    ),
-    "SAVEDSTATE" to listOf(
-        ComposeComponent(":savedstate:savedstate", supportedPlatforms = ComposePlatforms.ALL_AOSP),
-        ComposeComponent(":savedstate:savedstate-compose", supportedPlatforms = ComposePlatforms.ALL),
-    ),
-    "WINDOW" to listOf(
-        ComposeComponent(":window:window-core", supportedPlatforms = ComposePlatforms.ALL_AOSP - ComposePlatforms.WINDOWS_NATIVE),
-    ),
-)
-
-val libraryToTasks = mapOf(
-    "COMPOSE" to fun AbstractComposePublishingTask.() = publish(
-        ":compose:desktop:desktop",
-        onlyWithPlatforms = setOf(ComposePlatforms.Desktop),
-        publications = listOf(
-            "KotlinMultiplatform",
-            "Jvm",
-            "Jvmlinux-x64",
-            "Jvmlinux-arm64",
-            "Jvmmacos-x64",
-            "Jvmmacos-arm64",
-            "Jvmwindows-x64",
-            "Jvmwindows-arm64"
-        )
-    )
-)
-
-val pathToComposeComponent = libraryToComponents.values.flatten().associateBy { it.path }
-val Project.composeComponent get() = pathToComposeComponent[path]
+val parsedComposeProperties = ComposeProperties(project)
 
 tasks.register("publishComposeJb", ComposePublishingTask::class) {
+    group = "Compose Multiplatform"
     repository = "MavenRepository"
+    composeProperties = parsedComposeProperties
 
     libraries.forEach {
-        libraryToComponents[it]?.forEach(::publishMultiplatform)
-        libraryToTasks[it]?.invoke(this)
+        libraryToComponents[it]?.forEach { publish(rootProject, it) }
     }
 }
 
 tasks.register("publishComposeJbToMavenLocal", ComposePublishingTask::class) {
+    group = "Compose Multiplatform"
     repository = "MavenLocal"
+    composeProperties = parsedComposeProperties
 
     libraries.forEach {
-        libraryToComponents[it]?.forEach(::publishMultiplatform)
-        libraryToTasks[it]?.invoke(this)
+        libraryToComponents[it]?.forEach { publish(rootProject, it) }
     }
-}
-
-// isn't included in libraryToComponents for easy conflict resolution
-// (it is changed in integration and should be removed in 1.8)
-// TODO remove this and CI tasks after merging Jetpack Compose 1.8 to jb-main
-val iconsComponents =
-    emptyList<ComposeComponent>()
-
-fun ComposePublishingTask.iconsPublications() {
-    iconsComponents.forEach { publishMultiplatform(it) }
 }
 
 val libraries = project.findProperty("jetbrains.publication.libraries")
     ?.toString()?.split(",")
     ?: libraryToComponents.keys
 
-// separate task that cannot be built in parallel (because it requires too much RAM).
-// should be run with "--max-workers=1"
-tasks.register("publishComposeJbExtendedIcons", ComposePublishingTask::class) {
-    repository = "MavenRepository"
-    iconsPublications()
-}
-
-tasks.register("publishComposeJbExtendedIconsToMavenLocal", ComposePublishingTask::class) {
-    repository = "MavenLocal"
-    iconsPublications()
-}
-
-// TODO deprecated, kept for CI compatibility, remove after Compose Multiplatform 1.8.0 is released
-tasks.register("checkDesktop") {
-    dependsOn(allTasksWith(name = "desktopTest"))
-    dependsOn(":collection:collection:jvmTest")
-    dependsOn(allTasksWith(name = "desktopApiCheck"))
-}
 
 tasks.register("testDesktop") {
-    dependsOn(allTasksWith(name = "desktopTest"))
+    group = "Compose Multiplatform"
+    dependsOn(allTasksForPublishingProjectsWith(name = "desktopTest"))
+    dependsOn(allTasksForPublishingProjectsWith(name = "desktopHeadlessTest"))
     dependsOn(":collection:collection:jvmTest")
 }
 
 tasks.register("testWeb") {
+    group = "Compose Multiplatform"
     dependsOn(testWebJs)
     dependsOn(testWebWasm)
 }
 
 val testWebJs = tasks.register("testWebJs") {
-    dependsOn(":collection:collection:compileTestKotlinJs")
     dependsOn(":compose:foundation:foundation:jsTest")
     dependsOn(":compose:material3:material3:jsTest")
-    dependsOn(":compose:runtime:runtime:jsTest")
     dependsOn(":compose:ui:ui-text:jsTest")
     dependsOn(":compose:ui:ui:jsTest")
     dependsOn(":compose:ui:ui-test:jsTest")
@@ -211,33 +65,34 @@ val testWebJs = tasks.register("testWebJs") {
 
 val testWebWasm = tasks.register("testWebWasm") {
     // TODO: ideally we want to run all wasm tests that are possible but now we deal only with modules that have skikoTests
-    dependsOn(":collection:collection:wasmJsTest")
     dependsOn(":compose:foundation:foundation:wasmJsTest")
     dependsOn(":compose:material3:material3:wasmJsTest")
-    dependsOn(":compose:runtime:runtime:wasmJsTest")
     dependsOn(":compose:ui:ui-text:wasmJsTest")
     dependsOn(":compose:ui:ui:wasmJsTest")
     dependsOn(":compose:ui:ui-test:wasmJsTest")
     dependsOn(":navigation:navigation-runtime:wasmJsTest")
 }
 
-tasks.register("testUIKit") {
-    val suffix = if (System.getProperty("os.arch") == "aarch64") "SimArm64Test" else "X64Test"
-    val uikitTestSubtaskName = "uikit$suffix"
+tasks.register("testIos") {
+    group = "Compose Multiplatform"
+    val suffix = if (System.getProperty("os.arch") == "aarch64") "SimulatorArm64Test" else "X64Test"
+    val iosTestSubtaskName = "ios$suffix"
 
-    dependsOn(":compose:runtime:runtime:$uikitTestSubtaskName")
-    dependsOn(":compose:ui:ui-text:$uikitTestSubtaskName")
-    dependsOn(":compose:ui:ui:$uikitTestSubtaskName")
-    dependsOn(":compose:material3:material3:$uikitTestSubtaskName")
-    dependsOn(":compose:foundation:foundation:$uikitTestSubtaskName")
-    dependsOn(":collection:collection:$uikitTestSubtaskName")
+    dependsOn(":compose:runtime:runtime:$iosTestSubtaskName")
+    dependsOn(":compose:ui:ui-text:$iosTestSubtaskName")
+    dependsOn(":compose:ui:ui:$iosTestSubtaskName")
+    dependsOn(":compose:material3:material3:$iosTestSubtaskName")
+    dependsOn(":compose:foundation:foundation:$iosTestSubtaskName")
+    dependsOn(":collection:collection:$iosTestSubtaskName")
 }
 
 tasks.register("testRuntimeNative") {
+    group = "Compose Multiplatform"
     dependsOn(":compose:runtime:runtime:macosX64Test")
 }
 
 tasks.register("testComposeModules") { // used in https://github.com/JetBrains/androidx/tree/jb-main/.github/workflows
+    group = "Compose Multiplatform"
     // TODO: download robolectrict to run ui:ui:test
     // dependsOn(":compose:ui:ui:test")
 
@@ -261,10 +116,12 @@ tasks.register("testComposeModules") { // used in https://github.com/JetBrains/a
 }
 
 tasks.register("jbApiDump") {
+    group = "Compose Multiplatform"
     dependsOn(apiValidationTasks(suffix = "ApiDump"))
 }
 
 tasks.register("jbApiCheck") {
+    group = "Compose Multiplatform"
     dependsOn(apiValidationTasks(suffix = "ApiCheck"))
 }
 
@@ -283,10 +140,10 @@ fun apiValidationTasks(suffix: String) = buildSet<Task> {
     fun Iterable<Task>.filterComposePlatforms(platforms: Set<ComposePlatforms>) =
         filterComposePlatforms(*platforms.toTypedArray())
 
-    this += allTasksWith(name = "desktop$suffix")
+    this += allTasksForPublishingProjectsWith(name = "desktop$suffix")
         .filterComposePlatforms(ComposePlatforms.Desktop)
 
-    this += allTasksWith(name = "android$suffix")
+    this += allTasksForPublishingProjectsWith(name = "android$suffix")
         .filterComposePlatforms(ComposePlatforms.ANDROID)
 
     val klibPlatforms = if (System.getProperty("os.name") == "Mac OS X") {
@@ -294,13 +151,17 @@ fun apiValidationTasks(suffix: String) = buildSet<Task> {
     } else {
         ComposePlatforms.GENERATE_KLIB - ComposePlatforms.DARWIN
     }
-    this += allTasksWith(name = "klib$suffix")
+    this += allTasksForPublishingProjectsWith(name = "klib$suffix")
         .filterComposePlatforms(klibPlatforms)
 }
 
-fun allTasksWith(name: String): List<Task> =
+fun allTasksForPublishingProjectsWith(name: String): List<Task> =
     rootProject.subprojects.mapNotNull { project ->
-        project.tasks.findByName(name)
+         if (JetBrainsPublication.shouldPublish(project)) {
+             project.tasks.findByName(name)
+         } else {
+             null
+         }
     }
 
 // ./gradlew printAllArtifactRedirectionVersions -PfilterProjectPath=lifecycle

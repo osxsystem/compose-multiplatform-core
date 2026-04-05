@@ -15,15 +15,20 @@
  */
 package androidx.compose.remote.core.documentation;
 
+import androidx.annotation.RestrictTo;
+
 import org.jspecify.annotations.NonNull;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 
-public class OperationField {
+@RestrictTo(RestrictTo.Scope.LIBRARY_GROUP)
+public class OperationField implements DocumentedField {
     final int mType;
-    @NonNull final String mName;
-    @NonNull final String mDescription;
+    @NonNull
+    final String mName;
+    @NonNull
+    final String mDescription;
     @Nullable String mVarSize = null;
 
     @NonNull ArrayList<StringPair> mPossibleValues = new ArrayList<>();
@@ -63,9 +68,6 @@ public class OperationField {
 
     /**
      * Add possible values for a field
-     *
-     * @param name
-     * @param value
      */
     public void possibleValue(@NonNull String name, @NonNull String value) {
         mPossibleValues.add(new StringPair(name, value));
@@ -81,8 +83,16 @@ public class OperationField {
     }
 
     @Nullable
+    @Override
     public String getVarSize() {
         return mVarSize;
+    }
+
+    @NonNull
+    @Override
+    public String toDoc() {
+        return "<tr><td>" + DocumentedOperation.getType(mType) + "</td><td>" + mName + "</td><td>"
+                + mDescription + "</td></tr>";
     }
 
     /**
@@ -90,6 +100,7 @@ public class OperationField {
      *
      * @return the size in bytes
      */
+    @Override
     public int getSize() {
         switch (mType) {
             case DocumentedOperation.BYTE:

@@ -21,7 +21,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Composition
 import androidx.compose.runtime.CompositionContext
 import androidx.compose.runtime.CompositionLocalContext
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MonotonicFrameClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,8 +39,7 @@ import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.rotary.RotaryScrollEvent
 import androidx.compose.ui.node.SnapshotInvalidationTracker
 import androidx.compose.ui.platform.GlobalSnapshotManager
-import androidx.compose.ui.platform.LocalPlatformScreenReader
-import androidx.compose.ui.platform.LocalPlatformWindowInsets
+import androidx.compose.ui.platform.ProvidePlatformCompositionLocals
 import androidx.compose.ui.util.trace
 import kotlin.concurrent.Volatile
 import kotlin.coroutines.CoroutineContext
@@ -63,13 +61,10 @@ internal abstract class BaseComposeScene(
     protected val inputHandler: ComposeSceneInputHandler =
         ComposeSceneInputHandler(
             prepareForPointerInputEvent = ::doMeasureAndLayout,
-            processPointerInputEvent = ::processPointerInputEvent,
+            processPointerInputEvent = ::onPointerInputEvent,
             cancelPointerInput = ::processCancelPointerInput,
-            processKeyEvent = ::processKeyEvent
+            processKeyEvent = ::processKeyEvent,
         )
-
-    // Store this to avoid creating a lambda every frame
-    private val updatePointerPosition = inputHandler::updatePointerPosition
 
     private val frameClock = BroadcastFrameClock(onNewAwaiters = ::updateInvalidations)
     private val recomposer: ComposeSceneRecomposer =
@@ -141,19 +136,18 @@ internal abstract class BaseComposeScene(
             inputHandler.onChangeContent()
 
             /*
-         * It's required before setting content to apply changed parameters
-         * before first recomposition. Otherwise, it can lead to double recomposition.
-         */
+             * It's required before setting content to apply changed parameters
+             * before first recomposition. Otherwise, it can lead to double recomposition.
+             */
             recomposer.performScheduledRecomposerTasks()
 
             composition?.dispose()
             composition = createComposition {
-                CompositionLocalProvider(
+                ProvidePlatformCompositionLocals(
                     @Suppress("DEPRECATION")
                     LocalComposeScene provides this,
                     LocalComposeSceneContext provides composeSceneContext,
-                    LocalPlatformScreenReader provides composeSceneContext.platformContext.screenReader,
-                    LocalPlatformWindowInsets provides composeSceneContext.platformContext.windowInsets,
+                    platformContext = composeSceneContext.platformContext,
                     content = content
                 )
             }
@@ -182,7 +176,9 @@ internal abstract class BaseComposeScene(
 
             // Schedule synthetic events to be sent after `render` completes
             if (inputHandler.needUpdatePointerPosition) {
-                recomposer.scheduleAsEffect { updatePointerPosition() }
+                recomposer.scheduleAsEffect {
+                    inputHandler.updatePointerPosition()
+                }
             }
 
             // Between layout and draw, Android's Choreographer flushes the main dispatcher.
@@ -211,7 +207,9 @@ internal abstract class BaseComposeScene(
         buttons: PointerButtons?,
         keyboardModifiers: PointerKeyboardModifiers?,
         nativeEvent: Any?,
-        button: PointerButton?
+        button: PointerButton?,
+        scaleGestureFactor: Float,
+        panGestureOffset: Offset
     ): PointerEventResult = postponeInvalidation(
         "BaseComposeScene:sendPointerEvent"
     ) {
@@ -224,7 +222,9 @@ internal abstract class BaseComposeScene(
             buttons = buttons,
             keyboardModifiers = keyboardModifiers,
             nativeEvent = nativeEvent,
-            button = button
+            button = button,
+            scaleGestureFactor = scaleGestureFactor,
+            panGestureOffset = panGestureOffset,
         ).also {
             recomposer.performScheduledEffects()
         }
@@ -240,6 +240,8 @@ internal abstract class BaseComposeScene(
         timeMillis: Long,
         nativeEvent: Any?,
         button: PointerButton?,
+        scaleGestureFactor: Float,
+        panGestureOffset: Offset,
     ): PointerEventResult = postponeInvalidation(
         "BaseComposeScene:sendPointerEvent"
     ) {
@@ -251,7 +253,9 @@ internal abstract class BaseComposeScene(
             scrollDelta = scrollDelta,
             timeMillis = timeMillis,
             nativeEvent = nativeEvent,
-            button = button
+            button = button,
+            scaleGestureFactor = scaleGestureFactor,
+            panGestureOffset = panGestureOffset,
         ).also {
             recomposer.performScheduledEffects()
         }
@@ -296,6 +300,18 @@ internal abstract class BaseComposeScene(
     }
 
     protected abstract fun createComposition(content: @Composable () -> Unit): Composition
+
+    private fun onPointerInputEvent(event: PointerInputEvent) = processPointerInputEvent(event)
+        .also {
+            if (composeSceneContext.platformContext.isClearFocusOnMouseDownEnabled) {
+                val isDown = event.eventType == PointerEventType.Press
+                val pointer = event.pointers.singleOrNull()
+                val isFromMouse = pointer?.type == PointerType.Mouse
+                if (isDown && isFromMouse) {
+                    focusManager.clearFocusIfOutsideOfActiveFocusTargetNode(pointer.position)
+                }
+            }
+        }
 
     protected abstract fun processPointerInputEvent(event: PointerInputEvent): PointerEventResult
 

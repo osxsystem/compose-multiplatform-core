@@ -16,21 +16,22 @@
 
 package androidx.compose.ui.skiko
 
-import org.jetbrains.skia.Rect as SkRect
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.toComposeRect
 import org.jetbrains.skia.Canvas
 import org.jetbrains.skia.Picture
 import org.jetbrains.skia.PictureRecorder
 import org.jetbrains.skia.RTreeFactory
+import org.jetbrains.skia.Rect as SkRect
 import org.jetbrains.skiko.SkikoRenderDelegate
 
 internal class RecordDrawRectRenderDecorator(
     private val decorated: SkikoRenderDelegate,
     private val onDrawRectChange: (Rect) -> Unit
-) : SkikoRenderDelegate by decorated {
+) : SkikoRenderDelegate, AutoCloseable {
     private val pictureRecorder = PictureRecorder()
     private val bbhFactory = RTreeFactory()
+    private var isClosed = false
     private var drawRect = Rect.Zero
         set(value) {
             if (value != field) {
@@ -39,13 +40,20 @@ internal class RecordDrawRectRenderDecorator(
             }
         }
 
-    // TODO(@MatkovIvan): nobody calls it
-    fun close() {
+    override fun close() {
+        if (isClosed) {
+            return
+        }
+        isClosed = true
         pictureRecorder.close()
         bbhFactory.close()
     }
 
     override fun onRender(canvas: Canvas, width: Int, height: Int, nanoTime: Long) {
+        if (isClosed) {
+            decorated.onRender(canvas, width, height, nanoTime)
+            return
+        }
         drawRect = canvas.recordCullRect {
             decorated.onRender(it, width, height, nanoTime)
         }?.toComposeRect() ?: Rect.Zero
@@ -54,7 +62,13 @@ internal class RecordDrawRectRenderDecorator(
     private inline fun Canvas.recordCullRect(
         block: (Canvas) -> Unit
     ): SkRect? {
-        val pictureCanvas = pictureRecorder.beginRecording(SkRect.Unconstrained, bbhFactory)
+        val pictureCanvas = pictureRecorder.beginRecording(
+            Float.MIN_VALUE,
+            Float.MIN_VALUE,
+            Float.MAX_VALUE,
+            Float.MAX_VALUE,
+            bbhFactory
+        )
         pictureCanvas.translate(MeasureOffset, MeasureOffset)
         block(pictureCanvas)
         val picture = pictureRecorder.finishRecordingAsPicture()
@@ -81,11 +95,3 @@ internal class RecordDrawRectRenderDecorator(
  * so temporary applying some offset is required to get right measurement in negative area.
  */
 private const val MeasureOffset = (1 shl 14).toFloat()
-
-private val SkRect.Companion.Unconstrained: SkRect
-    get() = makeLTRB(
-        l = Float.MIN_VALUE,
-        t = Float.MIN_VALUE,
-        r = Float.MAX_VALUE,
-        b = Float.MAX_VALUE
-    )

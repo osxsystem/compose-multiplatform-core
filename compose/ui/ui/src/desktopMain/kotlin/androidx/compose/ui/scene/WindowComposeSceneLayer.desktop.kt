@@ -19,13 +19,13 @@ package androidx.compose.ui.scene
 import androidx.compose.runtime.CompositionContext
 import androidx.compose.ui.awt.JLayeredPaneWithTransparencyHack
 import androidx.compose.ui.awt.RenderSettings
-import androidx.compose.ui.awt.getTransparentWindowBackground
 import androidx.compose.ui.awt.hasMacOsShadow
 import androidx.compose.ui.awt.toAwtRectangle
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.toRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.skiaPaint
 import androidx.compose.ui.platform.PlatformWindowContext
 import androidx.compose.ui.scene.skia.SkiaLayerComponent
 import androidx.compose.ui.skiko.OverlayRenderDecorator
@@ -42,8 +42,9 @@ import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import javax.swing.JDialog
 import org.jetbrains.skia.Canvas
-import org.jetbrains.skia.Rect as SkRect
+import org.jetbrains.skiko.DelicateSkikoApi
 import org.jetbrains.skiko.SkiaLayerAnalytics
+import org.jetbrains.skiko.transparentWindowBackgroundHack
 
 internal class WindowComposeSceneLayer(
     composeContainer: ComposeContainer,
@@ -55,22 +56,22 @@ internal class WindowComposeSceneLayer(
     compositionContext: CompositionContext,
     private val renderSettings: RenderSettings
 ) : DesktopComposeSceneLayer(composeContainer, density, layoutDirection) {
-    private val parentWindow get() = requireNotNull(composeContainer.window)
+    // WindowComposeSceneLayer is tied to the window it was created with
+    private val parentWindow = requireNotNull(composeContainer.window)
+
     private val windowContext = PlatformWindowContext().also {
         it.isWindowTransparent = true
-        it.setContainerSize(windowContainer.sizeInPx)
+        it.setContainerSizeFromComponent(windowContainer)
     }
 
-    private val layerWindow = JDialog(
-        parentWindow,
-    ).also {
+    private val layerWindow = JDialog(parentWindow).also {
         it.isAlwaysOnTop = true
         it.focusableWindowState = focusable
         it.isUndecorated = true
-        it.background = getTransparentWindowBackground(
-            isWindowTransparent = transparent,
-            renderApi = composeContainer.renderApi
-        )
+
+        @OptIn(DelicateSkikoApi::class)
+        it.background =
+            if (transparent) transparentWindowBackgroundHack(composeContainer.renderApi) else null
         if (transparent) {
             it.hasMacOsShadow = false
         }
@@ -117,12 +118,14 @@ internal class WindowComposeSceneLayer(
         drawBounds = boundsInPx.roundToIntRect()
         mediator = ComposeSceneMediator(
             container = container,
+            isWindowLevel = true,
             windowContext = windowContext,
             exceptionHandler = {
                 composeContainer.exceptionHandler?.onException(it) ?: throw it
             },
             eventListener = eventListener,
             measureDrawLayerBounds = true,
+            architectureComponentsOwner = composeContainer.architectureComponentsOwner,
             coroutineContext = compositionContext.effectCoroutineContext,
             skiaLayerComponentFactory = ::createSkiaLayerComponent,
             composeSceneFactory = ::createComposeScene,
@@ -160,7 +163,7 @@ internal class WindowComposeSceneLayer(
     }
 
     override fun onWindowContainerSizeChanged() {
-        windowContext.setContainerSize(windowContainer.sizeInPx)
+        windowContext.setContainerSizeFromComponent(windowContainer)
 
         // Update compose constrains based on main window size
         mediator?.sceneBoundsInPx = Rect(
@@ -191,8 +194,8 @@ internal class WindowComposeSceneLayer(
         val paint = Paint().apply {
             color = scrimColor
             blendMode = getDialogScrimBlendMode(transparent)
-        }.asFrameworkPaint()
-        canvas.drawRect(SkRect.makeWH(width.toFloat(), height.toFloat()), paint)
+        }.skiaPaint
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
     }
 
     private fun createSkiaLayerComponent(mediator: ComposeSceneMediator): SkiaLayerComponent {

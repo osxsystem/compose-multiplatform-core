@@ -21,15 +21,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.TextField
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -41,6 +44,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.findNodeWithTag
@@ -48,6 +52,7 @@ import androidx.compose.ui.test.runUIKitInstrumentedTest
 import androidx.compose.ui.test.utils.dpRectInWindow
 import androidx.compose.ui.test.utils.forEachWithPrevious
 import androidx.compose.ui.uikit.OnFocusBehavior
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.DpSize
@@ -57,9 +62,10 @@ import androidx.compose.ui.unit.height
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.toDpRect
 import androidx.compose.ui.viewinterop.UIKitView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.KeyboardVisibilityListener
 import androidx.compose.ui.window.KeyboardVisibilityObserver
-import kotlin.test.Ignore
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -73,7 +79,7 @@ import platform.UIKit.UIViewAnimationOptions
 
 internal class KeyboardInsetsTest {
     @Test
-    fun testImeInsetsAnimationFrames_FocusAboveKeyboard() = runUIKitInstrumentedTest {
+    fun testImePaddingInsetsAnimationFrames_FocusAboveKeyboard() = runUIKitInstrumentedTest {
         val contentFrames = mutableListOf<DpRect>()
         var lastContentFrame = DpRect(DpOffset.Unspecified, DpSize.Unspecified)
         var focusManager: FocusManager? = null
@@ -162,7 +168,7 @@ internal class KeyboardInsetsTest {
     }
 
     @Test
-    fun testImeInsetsAnimationFrames_DoNothing() = runUIKitInstrumentedTest {
+    fun testImePaddingInsetsAnimationFrames_DoNothing() = runUIKitInstrumentedTest {
         val contentFrames = mutableListOf<DpRect>()
         var lastContentFrame = DpRect(DpOffset.Unspecified, DpSize.Unspecified)
         var focusManager: FocusManager? = null
@@ -625,6 +631,112 @@ internal class KeyboardInsetsTest {
         }
 
         assertEquals(screenSize.height - keyboardHeight, lastTextFieldFrame.bottom)
+    }
+
+    @Test
+    fun testInsetsInDialogWhenUseSoftwareKeyboardInsetEnabled() = runUIKitInstrumentedTest {
+        var frame: DpRect? = null
+        setContent {
+            Dialog(
+                onDismissRequest = {},
+                properties = DialogProperties(
+                    usePlatformInsets = false,
+                    useSoftwareKeyboardInset = true,
+                    usePlatformDefaultWidth = false
+                ),
+                content = {
+                    Box(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+                        BasicTextField(
+                            value = "",
+                            onValueChange = {},
+                            modifier = Modifier.fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                                .onGloballyPositioned {
+                                    frame = it.boundsInWindow().toDpRect(density)
+                                }
+                                .testTag("TextField")
+                        )
+                    }
+                }
+            )
+        }
+
+        findNodeWithTag("TextField").tap()
+        waitForIdle()
+
+        assertEquals(expected = frame?.bottom, actual = screenSize.height - keyboardHeight)
+    }
+
+    @Test
+    fun testInsetsInDialogWhenUseSoftwareKeyboardInsetDisabled() = runUIKitInstrumentedTest {
+        var frame: DpRect? = null
+        setContent {
+            Dialog(
+                onDismissRequest = {},
+                properties = DialogProperties(
+                    usePlatformInsets = false,
+                    useSoftwareKeyboardInset = false,
+                    usePlatformDefaultWidth = false
+                ),
+                content = {
+                    Box(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+                        BasicTextField(
+                            value = "",
+                            onValueChange = {},
+                            modifier = Modifier.fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                                .onGloballyPositioned {
+                                    frame = it.boundsInWindow().toDpRect(density)
+                                }
+                                .testTag("TextField")
+                        )
+                    }
+                }
+            )
+        }
+
+        findNodeWithTag("TextField").tap()
+        waitForIdle()
+
+        assertEquals(expected = frame?.bottom, actual = screenSize.height - keyboardHeight)
+    }
+
+    @Test
+    fun testImePaddingInDialogWithCustomDensity() = runUIKitInstrumentedTest {
+        val customDensity = Density(density = 5f)
+        var frame: DpRect? = null
+
+        setContent {
+            CompositionLocalProvider(LocalDensity provides customDensity) {
+                Dialog(
+                    onDismissRequest = {},
+                    properties = DialogProperties(
+                        usePlatformInsets = false,
+                        useSoftwareKeyboardInset = true,
+                        usePlatformDefaultWidth = false
+                    ),
+                    content = {
+                        Box(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
+                            BasicTextField(
+                                value = "",
+                                onValueChange = {},
+                                modifier = Modifier.fillMaxWidth()
+                                    .align(Alignment.BottomCenter)
+                                    .onGloballyPositioned {
+                                        frame = it.boundsInWindow().toDpRect(density)
+                                    }
+                                    .testTag("TextField")
+                            )
+                        }
+                    }
+                )
+            }
+        }
+
+        findNodeWithTag("TextField").tap()
+        waitForIdle()
+
+        assertEquals(expected = frame?.bottom, actual = screenSize.height - keyboardHeight)
     }
 }
 
